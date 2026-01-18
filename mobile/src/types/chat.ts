@@ -17,4 +17,5 @@ export type ChatMessage = {
   role: "user" | "assistant";
   text: string;
   teaching?: Teaching;
+  isTyping?: boolean;
 };
