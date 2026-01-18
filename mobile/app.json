@@ -4,7 +4,6 @@
     "slug": "chinese-tutor",
     "version": "0.1.0",
     "orientation": "portrait",
-    "sdkVersion": "51.0.0",
     "platforms": ["ios", "android", "web"],
     "userInterfaceStyle": "light"
   }
