@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+import os
+from typing import Literal
+
+import httpx
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 app = FastAPI(title="Chinese Tutor API", version="0.1.0")
@@ -28,6 +32,20 @@ class Teaching(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     teaching: Teaching
+
+
+class DeepSeekMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(..., min_length=1)
+
+
+class DeepSeekChatRequest(BaseModel):
+    speaker: Literal["english", "chinese"]
+    messages: list[DeepSeekMessage]
+
+
+class DeepSeekChatResponse(BaseModel):
+    reply: str
 
 
 def _contains_chinese(text: str) -> bool:
@@ -81,6 +99,19 @@ def _build_intermediate_response(message: str) -> ChatResponse:
     return ChatResponse(reply=reply, teaching=teaching)
 
 
+def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
+    if speaker == "english":
+        return (
+            "You are a Chinese tutor helping an English speaker. Explain in English, "
+            "include Chinese examples, and provide pinyin for the Chinese. "
+            "Be concise and friendly."
+        )
+    return (
+        "你是一位中文导师，面向中文母语者讲解。请用中文说明，并补充英文表达与发音提示。"
+        "保持简洁友好。"
+    )
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest) -> ChatResponse:
     message = request.message.strip()
@@ -92,3 +123,44 @@ async def chat(request: ChatRequest) -> ChatResponse:
     if _contains_chinese(message):
         response.reply = response.reply.replace("我们可以", "我们也可以")
     return response
+
+
+@app.post("/api/chat", response_model=DeepSeekChatResponse)
+async def deepseek_chat(request: DeepSeekChatRequest) -> DeepSeekChatResponse:
+    api_key = os.getenv("DEEPSEEK_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="DeepSeek API key not configured.")
+
+    system_prompt = _build_system_prompt(request.speaker)
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [{"role": "system", "content": system_prompt}]
+        + [message.model_dump() for message in request.messages],
+    }
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        response = await client.post(
+            "https://api.deepseek.com/chat/completions",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+        )
+
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"DeepSeek error: {response.status_code}",
+        )
+
+    data = response.json()
+    content = (
+        data.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content")
+    )
+    if not content:
+        raise HTTPException(status_code=502, detail="DeepSeek returned no content.")
+
+    return DeepSeekChatResponse(reply=content)
