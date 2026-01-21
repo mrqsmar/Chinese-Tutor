@@ -13,4 +13,6 @@ mobile/.expo-shared/
 
 # env:
 .env
+backend/.env
+mobile/.env
 .venv
