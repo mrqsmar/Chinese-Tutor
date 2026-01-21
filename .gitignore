@@ -10,3 +10,7 @@ mobile/.expo-shared/
 
 # OS
 .DS_Store
+
+# env:
+.env
+.venv
