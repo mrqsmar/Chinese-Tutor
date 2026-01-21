@@ -12,8 +12,6 @@ load_dotenv()
 
 app = FastAPI(title="Chinese Tutor API", version="0.1.0")
 
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, description="User input in English, Chinese, or mixed.")
@@ -132,40 +130,46 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 @app.post("/api/chat", response_model=DeepSeekChatResponse)
 async def deepseek_chat(request: DeepSeekChatRequest) -> DeepSeekChatResponse:
-    api_key = os.getenv("DEEPSEEK_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=503, detail="DeepSeek API key not configured.")
+        raise HTTPException(status_code=503, detail="Gemini API key not configured.")
 
     system_prompt = _build_system_prompt(request.speaker)
     payload = {
-        "model": "deepseek-chat",
-        "messages": [{"role": "system", "content": system_prompt}]
-        + [message.model_dump() for message in request.messages],
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [
+            {
+                "role": "model" if message.role == "assistant" else "user",
+                "parts": [{"text": message.content}],
+            }
+            for message in request.messages
+        ],
     }
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
-            "https://api.deepseek.com/chat/completions",
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
             headers={
-                "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
             },
+            params={"key": api_key},
             json=payload,
         )
 
     if response.status_code != 200:
         raise HTTPException(
             status_code=502,
-            detail=f"DeepSeek error: {response.status_code}: {response.text}",
+            detail=f"Gemini error: {response.status_code}: {response.text}",
         )
 
     data = response.json()
     content = (
-        data.get("choices", [{}])[0]
-        .get("message", {})
-        .get("content")
+        data.get("candidates", [{}])[0]
+        .get("content", {})
+        .get("parts", [{}])[0]
+        .get("text")
     )
     if not content:
-        raise HTTPException(status_code=502, detail="DeepSeek returned no content.")
+        raise HTTPException(status_code=502, detail="Gemini returned no content.")
 
     return DeepSeekChatResponse(reply=content)
