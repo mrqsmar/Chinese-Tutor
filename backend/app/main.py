@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dotenv import load_dotenv
 
 import os
 from typing import Literal
@@ -7,7 +8,11 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
+load_dotenv()
+
 app = FastAPI(title="Chinese Tutor API", version="0.1.0")
+
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
 
 class ChatRequest(BaseModel):
@@ -151,7 +156,7 @@ async def deepseek_chat(request: DeepSeekChatRequest) -> DeepSeekChatResponse:
     if response.status_code != 200:
         raise HTTPException(
             status_code=502,
-            detail=f"DeepSeek error: {response.status_code}",
+            detail=f"DeepSeek error: {response.status_code}: {response.text}",
         )
 
     data = response.json()
