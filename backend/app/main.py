@@ -155,7 +155,7 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 @app.post("/api/chat", response_model=LLMChatResponse)
 async def llm_chat(request: LLMChatRequest) -> LLMChatResponse:
-    key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="Gemini API key not configured.")
 

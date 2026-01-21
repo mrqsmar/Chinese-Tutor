@@ -1,0 +1,7 @@
+HTTP/1.1 422 Unprocessable Content
+date: Wed, 21 Jan 2026 06:56:19 GMT
+server: uvicorn
+content-length: 82
+content-type: application/json
+
+{"detail":[{"type":"missing","loc":["body"],"msg":"Field required","input":null}]}
