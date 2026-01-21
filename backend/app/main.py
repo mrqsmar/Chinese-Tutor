@@ -37,17 +37,17 @@ class ChatResponse(BaseModel):
     teaching: Teaching
 
 
-class DeepSeekMessage(BaseModel):
+class ChatMessage(BaseModel):
     role: Literal["user", "assistant"]
     content: str = Field(..., min_length=1)
 
 
-class DeepSeekChatRequest(BaseModel):
+class LLMChatRequest(BaseModel):
     speaker: Literal["english", "chinese"]
-    messages: list[DeepSeekMessage]
+    messages: list[ChatMessage]
 
 
-class DeepSeekChatResponse(BaseModel):
+class LLMChatResponse(BaseModel):
     reply: str
 
 
@@ -60,6 +60,8 @@ def _simplify_topic(text: str) -> str:
     if not words:
         return "日常生活"
     return words[0].lower()
+
+
 
 
 def _build_beginner_response(message: str) -> ChatResponse:
@@ -103,15 +105,38 @@ def _build_intermediate_response(message: str) -> ChatResponse:
 
 
 def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
+    base = (
+        "You are a Chinese language tutor. Only help with Chinese ↔ English learning: "
+        "translation, vocabulary, grammar, pronunciation (pinyin), and usage examples. "
+        "If the user asks about unrelated topics (politics, health, coding, math, etc.), "
+        "politely refuse and redirect them to a language-learning alternative. "
+        "Keep replies concise and tutor-like."
+    )
+
     if speaker == "english":
         return (
-            "You are a Chinese tutor helping an English speaker. Explain in English, "
-            "include Chinese examples, and provide pinyin for the Chinese. "
-            "Be concise and friendly."
+            base
+            + " Explain in English, include Chinese examples, and provide pinyin for Chinese."
+            + "\n\nAlways respond in this exact structure:\n"
+            + "If the user asks about an unrelated topic:\n"
+            + "- Do NOT answer the topic directly.\n"
+            + "- In the English section, briefly explain you can only help with Chinese ↔ English learning.\n"
+            + "- In the Chinese and Pinyin sections, provide a Chinese translation of the user's question so they can learn how to say it.\n"
+            + "- Still provide an example sentence, quick tip, and follow-up question related to language learning.\n\n"
+            + "Chinese:\n"
+            + "Pinyin:\n"
+            + "English:\n"
+            + "Example sentence (Chinese):\n"
+            + "Example pinyin:\n"
+            + "Example English:\n"
+            + "Quick tip:\n"
+            + "Follow-up question:\n"
         )
+
     return (
-        "你是一位中文导师，面向中文母语者讲解。请用中文说明，并补充英文表达与发音提示。"
-        "保持简洁友好。"
+        "你是一位中文导师。你的任务仅限于中文↔英文学习：翻译、词汇、语法、发音（拼音）与例句。"
+        "如果用户问与语言学习无关的话题（政治、健康、编程、数学等），请礼貌拒绝，并引导回到语言学习任务（例如翻译一句话、解释一个短语）。"
+        "保持简洁、像导师一样。"
     )
 
 
@@ -128,9 +153,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
     return response
 
 
-@app.post("/api/chat", response_model=DeepSeekChatResponse)
-async def deepseek_chat(request: DeepSeekChatRequest) -> DeepSeekChatResponse:
-    api_key = os.getenv("GEMINI_API_KEY")
+@app.post("/api/chat", response_model=LLMChatResponse)
+async def llm_chat(request: LLMChatRequest) -> LLMChatResponse:
+    key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="Gemini API key not configured.")
 
@@ -148,7 +173,7 @@ async def deepseek_chat(request: DeepSeekChatRequest) -> DeepSeekChatResponse:
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
             headers={
                 "Content-Type": "application/json",
             },
@@ -172,4 +197,4 @@ async def deepseek_chat(request: DeepSeekChatRequest) -> DeepSeekChatResponse:
     if not content:
         raise HTTPException(status_code=502, detail="Gemini returned no content.")
 
-    return DeepSeekChatResponse(reply=content)
+    return LLMChatResponse(reply=content)

@@ -15,7 +15,7 @@ import {
 
 import type { ChatMessage } from "./src/types/chat";
 
-const API_URL = "http://localhost:8000";
+const API_URL = "http://172.16.0.29:8000";
 const STORAGE_KEY = "speakerPreference";
 const TYPING_INTERVAL_MS = 18;
 
