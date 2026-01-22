@@ -60,13 +60,7 @@ const Onboarding = ({
 };
 
 export default function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      id: createId(),
-      role: "assistant",
-      text: "你好！我是你的中文导师。我们开始吧！",
-    },
-  ]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [preference, setPreference] = useState<SpeakerPreference | null>(null);
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
@@ -103,6 +97,30 @@ export default function App() {
     }
     return "";
   }, [preference]);
+
+  const welcomeMessage = useMemo(() => {
+    if (preference === "english") {
+      return "Hi! I’m your Chinese tutor. Say hello or tell me what you want to practice.";
+    }
+    if (preference === "chinese") {
+      return "你好！我是你的中文老师。跟我打个招呼，或者告诉我你想练什么。";
+    }
+    return "";
+  }, [preference]);
+
+  useEffect(() => {
+    if (!preference || messages.length > 0) {
+      return;
+    }
+
+    setMessages([
+      {
+        id: createId(),
+        role: "assistant",
+        text: welcomeMessage,
+      },
+    ]);
+  }, [messages.length, preference, welcomeMessage]);
 
   const streamAssistantResponse = useCallback(
     (messageId: string, fullText: string) => {
