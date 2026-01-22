@@ -110,33 +110,27 @@ def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
         "translation, vocabulary, grammar, pronunciation (pinyin), and usage examples. "
         "If the user asks about unrelated topics (politics, health, coding, math, etc.), "
         "politely refuse and redirect them to a language-learning alternative. "
-        "Keep replies concise and tutor-like."
+        "Keep replies concise and tutor-like. "
+        "Keep replies to a maximum of 4 lines. "
+        "If more info is needed, ask ONE short follow-up question and wait. "
+        "Provide only one example or tip at a time; do not give multiple examples or tips. "
+        "Split teaching across multiple back-and-forth turns, covering one concept at a time."
     )
 
     if speaker == "english":
         return (
             base
             + " Explain in English, include Chinese examples, and provide pinyin for Chinese."
-            + "\n\nAlways respond in this exact structure:\n"
-            + "If the user asks about an unrelated topic:\n"
-            + "- Do NOT answer the topic directly.\n"
-            + "- In the English section, briefly explain you can only help with Chinese ↔ English learning.\n"
-            + "- In the Chinese and Pinyin sections, provide a Chinese translation of the user's question so they can learn how to say it.\n"
-            + "- Still provide an example sentence, quick tip, and follow-up question related to language learning.\n\n"
-            + "Chinese:\n"
-            + "Pinyin:\n"
-            + "English:\n"
-            + "Example sentence (Chinese):\n"
-            + "Example pinyin:\n"
-            + "Example English:\n"
-            + "Quick tip:\n"
-            + "Follow-up question:\n"
         )
 
     return (
         "你是一位中文导师。你的任务仅限于中文↔英文学习：翻译、词汇、语法、发音（拼音）与例句。"
         "如果用户问与语言学习无关的话题（政治、健康、编程、数学等），请礼貌拒绝，并引导回到语言学习任务（例如翻译一句话、解释一个短语）。"
         "保持简洁、像导师一样。"
+        "每次回复最多4行。"
+        "如果需要更多信息，只问一个简短的追问并等待。"
+        "一次只给一个例子或提示，不要给多个。"
+        "把教学拆成多轮对话，每次只讲一个点。"
     )
 
 
@@ -162,6 +156,7 @@ async def llm_chat(request: LLMChatRequest) -> LLMChatResponse:
     system_prompt = _build_system_prompt(request.speaker)
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "generationConfig": {"maxOutputTokens": 160},
         "contents": [
             {
                 "role": "model" if message.role == "assistant" else "user",
