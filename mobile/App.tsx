@@ -71,6 +71,7 @@ export default function App() {
   const [preference, setPreference] = useState<SpeakerPreference | null>(null);
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
   useEffect(() => {
@@ -147,6 +148,7 @@ export default function App() {
     setMessages([...conversation, typingMessage]);
     setInput("");
     setIsSending(true);
+    setError(null);
 
     try {
       const response = await fetch(`${API_URL}/api/chat`, {
@@ -168,6 +170,7 @@ export default function App() {
       const data = (await response.json()) as { reply: string };
       const assistantId = createId();
 
+      setError(null);
       setMessages((prev) =>
         prev
           .filter((message) => !message.isTyping)
@@ -176,14 +179,9 @@ export default function App() {
 
       streamAssistantResponse(assistantId, data.reply);
     } catch (error) {
+      setError("抱歉，暂时无法连接到服务器。请稍后再试。");
       setMessages((prev) =>
-        prev
-          .filter((message) => !message.isTyping)
-          .concat({
-            id: createId(),
-            role: "assistant",
-            text: "抱歉，暂时无法连接到服务器。请稍后再试。",
-          })
+        prev.filter((message) => !message.isTyping)
       );
     } finally {
       setIsSending(false);
@@ -233,6 +231,12 @@ export default function App() {
           <Text style={styles.title}>Chinese Tutor</Text>
           <Text style={styles.subtitle}>{systemHint}</Text>
         </View>
+
+        {error ? (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
+        ) : null}
 
         <FlatList
           ref={listRef}
@@ -365,6 +369,17 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "600",
     fontSize: 14,
+  },
+  errorBanner: {
+    backgroundColor: "#FEE2E2",
+    borderBottomWidth: 1,
+    borderBottomColor: "#FECACA",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  errorText: {
+    color: "#B91C1C",
+    fontSize: 12,
   },
   onboardingContainer: {
     flex: 1,
