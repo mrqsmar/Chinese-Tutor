@@ -5,6 +5,14 @@
     "version": "0.1.0",
     "orientation": "portrait",
     "platforms": ["ios", "android", "web"],
-    "userInterfaceStyle": "light"
+    "userInterfaceStyle": "light",
+    "ios": {
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "We use the microphone to capture speech for translation."
+      }
+    },
+    "android": {
+      "permissions": ["RECORD_AUDIO"]
+    }
   }
 }
