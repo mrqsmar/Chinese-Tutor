@@ -15,7 +15,7 @@ import {
 
 import type { ChatMessage } from "./src/types/chat";
 
-const API_URL = "http://172.16.0.29:8000";
+const API_URL = "https://uncircuitous-tuan-legibly.ngrok-free.dev";
 const STORAGE_KEY = "speakerPreference";
 const TYPING_INTERVAL_MS = 18;
 
@@ -23,10 +23,6 @@ const createId = () => Math.random().toString(36).slice(2, 10);
 
 type SpeakerPreference = "english" | "chinese";
 
-type DeepSeekMessage = {
-  role: "user" | "assistant";
-  content: string;
-};
 
 const Onboarding = ({
   onSelect,
@@ -173,10 +169,10 @@ export default function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          speaker: preference,
-          messages: conversation.map<DeepSeekMessage>((message) => ({
-            role: message.role,
-            content: message.text,
+          speaker: preference, // "english" | "chinese"
+          messages: conversation.map((m) => ({
+            role: m.role,       // "user" | "assistant"
+            content: m.text,
           })),
         }),
       });

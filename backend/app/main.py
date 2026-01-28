@@ -62,8 +62,6 @@ def _simplify_topic(text: str) -> str:
     return words[0].lower()
 
 
-
-
 def _build_beginner_response(message: str) -> ChatResponse:
     topic = _simplify_topic(message)
     reply = f"你好！我们可以聊聊{topic}。你今天怎么样？"
