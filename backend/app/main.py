@@ -5,12 +5,24 @@ import os
 from typing import Literal
 
 import httpx
-from fastapi import FastAPI, HTTPException
+import tempfile
+
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+from app.models.speech_turn import SpeechTurnResponse
+from app.services.gemini_stt import GeminiSTTClient
+from app.services.gemini_tts import GeminiTTSClient
+from app.services.speech_turn import GeminiSpeechTurnTextClient, SpeechTurnService
 
 load_dotenv()
 
 app = FastAPI(title="Chinese Tutor API", version="0.1.0")
+
+AUDIO_DIR = os.path.join(tempfile.gettempdir(), "chinese_tutor_audio")
+os.makedirs(AUDIO_DIR, exist_ok=True)
+app.mount("/static/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 
 
 class ChatRequest(BaseModel):
@@ -49,6 +61,21 @@ class LLMChatRequest(BaseModel):
 
 class LLMChatResponse(BaseModel):
     reply: str
+
+
+def get_speech_turn_service() -> SpeechTurnService:
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Gemini API key not configured.")
+    stt_client = GeminiSTTClient(api_key=api_key)
+    tts_client = GeminiTTSClient(api_key=api_key)
+    text_client = GeminiSpeechTurnTextClient(api_key=api_key)
+    return SpeechTurnService(
+        stt_client=stt_client,
+        tts_client=tts_client,
+        text_client=text_client,
+        audio_dir=AUDIO_DIR,
+    )
 
 
 def _contains_chinese(text: str) -> bool:
@@ -199,3 +226,26 @@ async def llm_chat(request: LLMChatRequest) -> LLMChatResponse:
         raise HTTPException(status_code=502, detail="Gemini returned no content.")
 
     return LLMChatResponse(reply=content)
+
+
+@app.post("/v1/speech/turn", response_model=SpeechTurnResponse)
+async def speech_turn(
+    request: Request,
+    audio_file: UploadFile = File(...),
+    source_lang: str = Form("en"),
+    target_lang: str = Form("zh"),
+    scenario: str | None = Form(None),
+    service: SpeechTurnService = Depends(get_speech_turn_service),
+) -> SpeechTurnResponse:
+    audio_bytes = await audio_file.read()
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Audio file is empty.")
+    mime_type = audio_file.content_type or "audio/wav"
+    return await service.process(
+        audio_bytes=audio_bytes,
+        mime_type=mime_type,
+        source_lang=source_lang,
+        target_lang=target_lang,
+        scenario=scenario,
+        base_url=str(request.base_url),
+    )

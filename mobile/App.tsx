@@ -1,4 +1,5 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Audio } from "expo-av";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -22,6 +23,22 @@ const TYPING_INTERVAL_MS = 18;
 const createId = () => Math.random().toString(36).slice(2, 10);
 
 type SpeakerPreference = "english" | "chinese";
+type MicPermissionState = "undetermined" | "granted" | "denied";
+
+type SpeechTurnAudio = {
+  format: "mp3" | "wav";
+  url?: string;
+  base64?: string;
+};
+
+type SpeechTurnResponse = {
+  transcript: string;
+  normalized_request: string;
+  chinese: string;
+  pinyin: string;
+  notes: string[];
+  audio: SpeechTurnAudio;
+};
 
 
 const Onboarding = ({
@@ -62,7 +79,15 @@ export default function App() {
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [micPermission, setMicPermission] =
+    useState<MicPermissionState>("undetermined");
+  const [isRecording, setIsRecording] = useState(false);
+  const [isUploadingVoice, setIsUploadingVoice] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
   const listRef = useRef<FlatList<ChatMessage>>(null);
+  const recordingRef = useRef<Audio.Recording | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
 
   useEffect(() => {
     const loadPreference = async () => {
@@ -202,6 +227,114 @@ export default function App() {
     }
   };
 
+  const ensureMicPermission = async () => {
+    if (micPermission === "granted") {
+      return true;
+    }
+    const permission = await Audio.requestPermissionsAsync();
+    if (permission.granted) {
+      setMicPermission("granted");
+      return true;
+    }
+    setMicPermission("denied");
+    return false;
+  };
+
+  const playVoiceAudio = async (audio: SpeechTurnAudio) => {
+    const uri =
+      audio.url ?? `data:audio/${audio.format};base64,${audio.base64}`;
+    if (!uri) {
+      return;
+    }
+    if (soundRef.current) {
+      await soundRef.current.unloadAsync();
+    }
+    const sound = new Audio.Sound();
+    await sound.loadAsync({ uri });
+    await sound.playAsync();
+    soundRef.current = sound;
+  };
+
+  const startRecording = async () => {
+    if (isRecording || isUploadingVoice) {
+      return;
+    }
+    const hasPermission = await ensureMicPermission();
+    if (!hasPermission) {
+      setVoiceError(
+        "Microphone access is required. Please enable it in system settings."
+      );
+      return;
+    }
+    setVoiceError(null);
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: true,
+      playsInSilentModeIOS: true,
+    });
+    const recording = new Audio.Recording();
+    await recording.prepareToRecordAsync(
+      Audio.RecordingOptionsPresets.HIGH_QUALITY
+    );
+    await recording.startAsync();
+    recordingRef.current = recording;
+    setIsRecording(true);
+  };
+
+  const stopRecording = async () => {
+    const recording = recordingRef.current;
+    if (!recording) {
+      return;
+    }
+    setIsRecording(false);
+    setIsUploadingVoice(true);
+    setVoiceError(null);
+    try {
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      recordingRef.current = null;
+      if (!uri) {
+        throw new Error("Missing recording URI");
+      }
+      const formData = new FormData();
+      formData.append("audio_file", {
+        uri,
+        name: "speech.m4a",
+        type: "audio/m4a",
+      } as unknown as Blob);
+      formData.append("source_lang", "en");
+      formData.append("target_lang", "zh");
+      formData.append("scenario", "restaurant");
+
+      const response = await fetch(`${API_URL}/v1/speech/turn`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch speech response");
+      }
+
+      const data = (await response.json()) as SpeechTurnResponse;
+      setVoiceTurn(data);
+      await playVoiceAudio(data.audio);
+    } catch (voiceUploadError) {
+      setVoiceError("Voice request failed. Please try again.");
+    } finally {
+      setIsUploadingVoice(false);
+    }
+  };
+
+  useEffect(() => {
+    return () => {
+      if (soundRef.current) {
+        void soundRef.current.unloadAsync();
+      }
+      if (recordingRef.current) {
+        void recordingRef.current.stopAndUnloadAsync();
+      }
+    };
+  }, []);
+
   const renderItem = ({ item }: { item: ChatMessage }) => (
     <View
       style={[
@@ -251,6 +384,50 @@ export default function App() {
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
+
+        <View style={styles.voiceCard}>
+          <Text style={styles.voiceTitle}>Voice Turn</Text>
+          <Text style={styles.voiceSubtitle}>
+            Hold the button, speak English, release to translate.
+          </Text>
+          {micPermission === "denied" ? (
+            <Text style={styles.voiceError}>
+              Microphone access is disabled. Enable it in system settings.
+            </Text>
+          ) : null}
+          {voiceError ? (
+            <Text style={styles.voiceError}>{voiceError}</Text>
+          ) : null}
+          <TouchableOpacity
+            style={[
+              styles.voiceButton,
+              isRecording && styles.voiceButtonActive,
+              (isUploadingVoice || micPermission === "denied") &&
+                styles.voiceButtonDisabled,
+            ]}
+            onPressIn={startRecording}
+            onPressOut={stopRecording}
+            disabled={isUploadingVoice || micPermission === "denied"}
+          >
+            <Text style={styles.voiceButtonText}>
+              {isRecording
+                ? "Recording..."
+                : isUploadingVoice
+                ? "Processing..."
+                : "Hold to Talk"}
+            </Text>
+          </TouchableOpacity>
+          {voiceTurn ? (
+            <View style={styles.voiceResult}>
+              <Text style={styles.voiceLabel}>Transcript</Text>
+              <Text style={styles.voiceValue}>{voiceTurn.transcript}</Text>
+              <Text style={styles.voiceLabel}>Chinese</Text>
+              <Text style={styles.voiceValue}>{voiceTurn.chinese}</Text>
+              <Text style={styles.voiceLabel}>Pinyin</Text>
+              <Text style={styles.voiceValue}>{voiceTurn.pinyin}</Text>
+            </View>
+          ) : null}
+        </View>
 
         <FlatList
           ref={listRef}
@@ -394,6 +571,66 @@ const styles = StyleSheet.create({
   errorText: {
     color: "#B91C1C",
     fontSize: 12,
+  },
+  voiceCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  voiceTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  voiceSubtitle: {
+    marginTop: 6,
+    fontSize: 12,
+    color: "#6B7280",
+  },
+  voiceError: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#B91C1C",
+  },
+  voiceButton: {
+    marginTop: 12,
+    paddingVertical: 12,
+    borderRadius: 18,
+    backgroundColor: "#2F6FED",
+    alignItems: "center",
+  },
+  voiceButtonActive: {
+    backgroundColor: "#1D4ED8",
+  },
+  voiceButtonDisabled: {
+    backgroundColor: "#94A3B8",
+  },
+  voiceButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  voiceResult: {
+    marginTop: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    padding: 12,
+  },
+  voiceLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#6B7280",
+    textTransform: "uppercase",
+    marginTop: 8,
+  },
+  voiceValue: {
+    marginTop: 4,
+    fontSize: 14,
+    color: "#111827",
   },
   onboardingContainer: {
     flex: 1,
