@@ -38,7 +38,8 @@ type SpeechTurnResponse = {
   chinese: string;
   pinyin: string;
   notes: string[];
-  audio: SpeechTurnAudio;
+  audio?: SpeechTurnAudio | null;
+  tts_error?: string | null;
 };
 
 
@@ -322,7 +323,9 @@ export default function App() {
 
       const data = JSON.parse(raw);
       setVoiceTurn(data);
-      await playVoiceAudio(data.audio);
+      if (data.audio?.url || data.audio?.base64) {
+        await playVoiceAudio(data.audio);
+      }
     } catch (voiceUploadError) {
       console.error("Voice upload error:", voiceUploadError);
       setVoiceError("Voice request failed. Please try again.");
@@ -432,6 +435,9 @@ export default function App() {
               <Text style={styles.voiceValue}>{voiceTurn.chinese}</Text>
               <Text style={styles.voiceLabel}>Pinyin</Text>
               <Text style={styles.voiceValue}>{voiceTurn.pinyin}</Text>
+              {voiceTurn.tts_error ? (
+                <Text style={styles.voiceAudioNote}>Audio unavailable</Text>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -638,6 +644,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 14,
     color: "#111827",
+  },
+  voiceAudioNote: {
+    marginTop: 8,
+    fontSize: 12,
+    color: "#6B7280",
   },
   onboardingContainer: {
     flex: 1,

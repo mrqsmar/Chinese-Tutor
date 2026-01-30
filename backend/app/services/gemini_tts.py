@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
+
 import httpx
 
 
@@ -13,12 +15,10 @@ class GeminiTTSClient:
         self._model = model or os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
 
     async def synthesize(self, text: str, target_lang: str) -> tuple[bytes, str]:
-        # Avoid "zh Chinese" phrasing
-        lang = "Mandarin Chinese" if target_lang in ("zh", "zh-CN", "zh-Hans") else target_lang
-
         payload = {
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
+                "responseMimeType": "audio/wav",
                 "speechConfig": {
                     "voiceConfig": {
                         "prebuiltVoiceConfig": {"voiceName": "Kore"}
@@ -29,7 +29,7 @@ class GeminiTTSClient:
                 {
                     "role": "user",
                     "parts": [
-                        {"text": f"Read the following aloud in {lang}, natural tone: {text}"}
+                        {"text": f"Speak in Mandarin Chinese: {text}"}
                     ],
                 }
             ],
@@ -54,13 +54,31 @@ class GeminiTTSClient:
         response.raise_for_status()
 
         data = response.json()
-        part = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0]
-        inline = part.get("inlineData", {})
-        encoded_audio = inline.get("data")
-        mime_type = inline.get("mimeType", "audio/mpeg")
+        candidate = data.get("candidates", [{}])[0]
+        parts = candidate.get("content", {}).get("parts", []) or []
+        encoded_audio = None
+        mime_type = "audio/wav"
+        for part in parts:
+            inline = part.get("inlineData", {}) or {}
+            encoded_audio = inline.get("data")
+            if encoded_audio:
+                mime_type = inline.get("mimeType", mime_type)
+                break
 
         if not encoded_audio:
-            raise ValueError(f"Gemini TTS returned no audio. Response: {data}")
+            finish_reason = candidate.get("finishReason", "unknown")
+            response_json = json.dumps(data, ensure_ascii=False, indent=2)
+            if len(response_json) > 4000:
+                response_json = response_json[:4000] + "...(truncated)"
+            print(
+                "Gemini TTS missing audio. finishReason:",
+                finish_reason,
+                "response:",
+                response_json,
+            )
+            raise ValueError(
+                f"Gemini TTS returned no audio. finishReason={finish_reason}."
+            )
 
         audio_bytes = base64.b64decode(encoded_audio)
         # mimeType may vary; don't assume mp3/wav too aggressively

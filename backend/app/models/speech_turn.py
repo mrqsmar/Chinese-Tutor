@@ -32,7 +32,8 @@ class SpeechTurnResponse(BaseModel):
     chinese: str | None = None
     pinyin: str | None = None
     notes: list[str] = Field(default_factory=list)
-    audio: SpeechTurnAudio
+    audio: SpeechTurnAudio | None = None
+    tts_error: str | None = None
     analysis: SpeechTurnAnalysis
 
     @model_validator(mode="after")
