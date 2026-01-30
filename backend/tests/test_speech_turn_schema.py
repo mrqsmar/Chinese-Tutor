@@ -48,7 +48,7 @@ def test_speech_turn_schema():
     client = TestClient(app)
     response = client.post(
         "/v1/speech/turn",
-        files={"audio_file": ("sample.wav", build_silence_wav(), "audio/wav")},
+        files={"audio": ("sample.wav", build_silence_wav(), "audio/wav")},
     )
 
     app.dependency_overrides.clear()

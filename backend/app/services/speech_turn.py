@@ -117,14 +117,22 @@ class SpeechTurnService:
             notes = notes + ["Translation incomplete; please retry."]
 
         tts_text = chinese or transcript
-        audio_bytes, audio_format = await self._tts_client.synthesize(tts_text, target_lang)
-        filename = f"{uuid4().hex}.{audio_format}"
-        file_path = os.path.join(self._audio_dir, filename)
-        with open(file_path, "wb") as handle:
-            handle.write(audio_bytes)
+        audio = None
+        tts_error = None
+        try:
+            audio_bytes, audio_format = await self._tts_client.synthesize(tts_text, target_lang)
+            if not audio_bytes:
+                raise ValueError("TTS returned no audio bytes.")
+            filename = f"{uuid4().hex}.{audio_format}"
+            file_path = os.path.join(self._audio_dir, filename)
+            with open(file_path, "wb") as handle:
+                handle.write(audio_bytes)
 
-        self._cleanup_old_files()
-        audio_url = f"{base_url.rstrip('/')}/static/audio/{filename}"
+            self._cleanup_old_files()
+            audio_url = f"{base_url.rstrip('/')}/static/audio/{filename}"
+            audio = SpeechTurnAudio(format=audio_format, url=audio_url)
+        except Exception as exc:  # noqa: BLE001
+            tts_error = f"{type(exc).__name__}: {exc}"
 
         response = SpeechTurnResponse(
             source_lang=source_lang,
@@ -136,7 +144,8 @@ class SpeechTurnService:
             chinese=chinese if text_result.intent == "translate_request" else "",
             pinyin=pinyin if text_result.intent == "translate_request" else "",
             notes=notes,
-            audio=SpeechTurnAudio(format=audio_format, url=audio_url),
+            audio=audio,
+            tts_error=tts_error,
             analysis=SpeechTurnAnalysis(overall_score=None, phoneme_confidence=[]),
         )
         return response
