@@ -26,7 +26,7 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### Endpoint
+### Endpoints
 
 `POST /chat`
 
@@ -56,6 +56,17 @@ Response body:
 }
 ```
 
+`POST /v1/speech/turn` (multipart form-data)
+
+```bash
+curl -X POST "http://localhost:8000/v1/speech/turn" \
+  -F "audio=@/path/to/audio.m4a" \
+  -F "level=beginner" \
+  -F "scenario=restaurant" \
+  -F "source_lang=en" \
+  -F "target_lang=zh"
+```
+
 ## Mobile (Expo React Native)
 
 ### Setup
@@ -71,7 +82,8 @@ npm install
 npm run start
 ```
 
-> If you are testing on a physical device, update the `API_URL` in `mobile/App.tsx` to your machine's LAN IP.
+> If you are testing on a physical device, set `EXPO_PUBLIC_API_URL` to your machine's LAN IP
+> (for example, `http://192.168.1.100:8000`).
 
 ## Notes
 
