@@ -299,22 +299,26 @@ export default function App() {
       formData.append("audio_file", {
         uri,
         name: "speech.m4a",
-        type: "audio/m4a",
-      } as unknown as Blob);
+        type: "audio/mp4",
+      } as any);
       formData.append("source_lang", "en");
       formData.append("target_lang", "zh");
       formData.append("scenario", "restaurant");
 
       const response = await fetch(`${API_URL}/v1/speech/turn`, {
         method: "POST",
+        headers: { Accept: "application/json" },
         body: formData,
       });
 
+      const raw = await response.text();
       if (!response.ok) {
-        throw new Error("Failed to fetch speech response");
+        console.log("Voice Status: ", response.status);
+        console.log("Voice upload failed:", raw);
+        throw new Error(`Voice failed ${response.status}: ${raw}`);
       }
 
-      const data = (await response.json()) as SpeechTurnResponse;
+      const data = JSON.parse(raw);
       setVoiceTurn(data);
       await playVoiceAudio(data.audio);
     } catch (voiceUploadError) {

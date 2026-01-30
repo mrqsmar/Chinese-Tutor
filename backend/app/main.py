@@ -240,7 +240,12 @@ async def speech_turn(
     audio_bytes = await audio_file.read()
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="Audio file is empty.")
-    mime_type = audio_file.content_type or "audio/wav"
+    mime_type = audio_file.content_type
+    if not mime_type:
+        if (audio_file.filename or "").endswith(".m4a"):
+            mime_type = "audio/mp4"
+        else:
+            mime_type = "application/octet-stream"
     return await service.process(
         audio_bytes=audio_bytes,
         mime_type=mime_type,

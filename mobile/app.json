@@ -4,7 +4,11 @@
     "slug": "chinese-tutor",
     "version": "0.1.0",
     "orientation": "portrait",
-    "platforms": ["ios", "android", "web"],
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
     "userInterfaceStyle": "light",
     "ios": {
       "infoPlist": {
@@ -12,7 +16,13 @@
       }
     },
     "android": {
-      "permissions": ["RECORD_AUDIO"]
-    }
+      "permissions": [
+        "RECORD_AUDIO"
+      ]
+    },
+    "plugins": [
+      "expo-audio",
+      "expo-video"
+    ]
   }
 }
