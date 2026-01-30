@@ -63,6 +63,11 @@ class LLMChatResponse(BaseModel):
     reply: str
 
 
+@app.get("/health")
+async def health() -> dict[str, bool]:
+    return {"ok": True}
+
+
 def get_speech_turn_service() -> SpeechTurnService:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
@@ -228,21 +233,21 @@ async def llm_chat(request: LLMChatRequest) -> LLMChatResponse:
     return LLMChatResponse(reply=content)
 
 
-@app.post("/v1/speech/turn", response_model=SpeechTurnResponse)
-async def speech_turn(
+async def _speech_turn_handler(
     request: Request,
-    audio_file: UploadFile = File(...),
-    source_lang: str = Form("en"),
-    target_lang: str = Form("zh"),
-    scenario: str | None = Form(None),
-    service: SpeechTurnService = Depends(get_speech_turn_service),
+    audio: UploadFile,
+    level: str,
+    scenario: str,
+    source_lang: str,
+    target_lang: str,
+    service: SpeechTurnService,
 ) -> SpeechTurnResponse:
-    audio_bytes = await audio_file.read()
+    audio_bytes = await audio.read()
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="Audio file is empty.")
-    mime_type = audio_file.content_type
+    mime_type = audio.content_type
     if not mime_type:
-        if (audio_file.filename or "").endswith(".m4a"):
+        if (audio.filename or "").endswith(".m4a"):
             mime_type = "audio/mp4"
         else:
             mime_type = "application/octet-stream"
@@ -253,4 +258,46 @@ async def speech_turn(
         target_lang=target_lang,
         scenario=scenario,
         base_url=str(request.base_url),
+    )
+
+
+@app.post("/v1/speech/turn", response_model=SpeechTurnResponse)
+async def speech_turn(
+    request: Request,
+    audio: UploadFile = File(...),
+    level: str = Form("beginner"),
+    scenario: str = Form("restaurant"),
+    source_lang: str = Form("en"),
+    target_lang: str = Form("zh"),
+    service: SpeechTurnService = Depends(get_speech_turn_service),
+) -> SpeechTurnResponse:
+    return await _speech_turn_handler(
+        request=request,
+        audio=audio,
+        level=level,
+        scenario=scenario,
+        source_lang=source_lang,
+        target_lang=target_lang,
+        service=service,
+    )
+
+
+@app.post("/speech_turn", response_model=SpeechTurnResponse)
+async def speech_turn_alias(
+    request: Request,
+    audio: UploadFile = File(...),
+    level: str = Form("beginner"),
+    scenario: str = Form("restaurant"),
+    source_lang: str = Form("en"),
+    target_lang: str = Form("zh"),
+    service: SpeechTurnService = Depends(get_speech_turn_service),
+) -> SpeechTurnResponse:
+    return await _speech_turn_handler(
+        request=request,
+        audio=audio,
+        level=level,
+        scenario=scenario,
+        source_lang=source_lang,
+        target_lang=target_lang,
+        service=service,
     )

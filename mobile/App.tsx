@@ -16,7 +16,8 @@ import {
 
 import type { ChatMessage } from "./src/types/chat";
 
-const API_URL = "https://uncircuitous-tuan-legibly.ngrok-free.dev";
+const API_URL =
+  process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.100:8000";
 const STORAGE_KEY = "speakerPreference";
 const TYPING_INTERVAL_MS = 18;
 
@@ -296,14 +297,15 @@ export default function App() {
         throw new Error("Missing recording URI");
       }
       const formData = new FormData();
-      formData.append("audio_file", {
+      formData.append("audio", {
         uri,
         name: "speech.m4a",
         type: "audio/mp4",
       } as any);
+      formData.append("level", "beginner");
+      formData.append("scenario", "restaurant");
       formData.append("source_lang", "en");
       formData.append("target_lang", "zh");
-      formData.append("scenario", "restaurant");
 
       const response = await fetch(`${API_URL}/v1/speech/turn`, {
         method: "POST",
@@ -312,9 +314,9 @@ export default function App() {
       });
 
       const raw = await response.text();
+      console.log("Voice Status:", response.status);
+      console.log("Voice Response:", raw);
       if (!response.ok) {
-        console.log("Voice Status: ", response.status);
-        console.log("Voice upload failed:", raw);
         throw new Error(`Voice failed ${response.status}: ${raw}`);
       }
 
@@ -322,6 +324,7 @@ export default function App() {
       setVoiceTurn(data);
       await playVoiceAudio(data.audio);
     } catch (voiceUploadError) {
+      console.error("Voice upload error:", voiceUploadError);
       setVoiceError("Voice request failed. Please try again.");
     } finally {
       setIsUploadingVoice(false);
