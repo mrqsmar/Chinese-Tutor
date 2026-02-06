@@ -7,7 +7,7 @@ import re
 import time
 import wave
 from dataclasses import dataclass
-from typing import Literal, Any
+from typing import Any, Literal
 from uuid import uuid4
 
 import httpx
@@ -43,7 +43,6 @@ class GeminiSpeechTurnTextClient:
     ) -> SpeechTurnTextResult:
         scenario_hint = f"Scenario: {scenario}." if scenario else ""
 
-        # Keep the prompt, but we’ll ALSO enforce schema (much more reliable).
         prompt = (
             "You are a Chinese tutor. "
             "Decide if the user is asking how to say something in the target language. "
@@ -68,7 +67,6 @@ class GeminiSpeechTurnTextClient:
             "generationConfig": {
                 "temperature": 0.2,
                 "maxOutputTokens": 256,
-                # JSON mode + schema → predictable output
                 "responseMimeType": "application/json",
                 "responseSchema": response_schema,
             },
@@ -77,7 +75,6 @@ class GeminiSpeechTurnTextClient:
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self._model}:generateContent"
 
-        # retry on 429 (rate limit) with small backoff
         last_exc: Exception | None = None
         for attempt in range(3):
             response = await self._client.post(
@@ -88,9 +85,8 @@ class GeminiSpeechTurnTextClient:
             )
 
             if response.status_code == 429:
-                # backoff: 0.5s, 1.0s, 2.0s
                 wait = 0.5 * (2**attempt)
-                print(f"TEXT 429 Too Many Requests. retrying in {wait:.1f}s")
+                logger.warning("TEXT 429 Too Many Requests. retrying in %.1fs", wait)
                 time.sleep(wait)
                 continue
 
@@ -112,7 +108,6 @@ class GeminiSpeechTurnTextClient:
 
             return _parse_text_result(content, transcript)
 
-        # If we got here, retries failed
         raise last_exc or ValueError("Gemini text generation failed after retries.")
 
 
@@ -165,12 +160,13 @@ class SpeechTurnService:
             transcript=transcript,
             normalized_request=text_result.normalized_request,
             intent=text_result.intent,
-            chinese=text_result.chinese,
-            pinyin=text_result.pinyin,
+            chinese=chinese,
+            pinyin=pinyin,
             notes=notes,
             audio=audio,
             audio_url=audio_url,
-            audio_base64=audio.base64 if audio else None,
+            # Only include base64 if your SpeechTurnAudio actually sets it.
+            audio_base64=getattr(audio, "base64", None) if audio else None,
             audio_mime=audio_mime,
             tts_error=tts_error,
             analysis=SpeechTurnAnalysis(overall_score=None, phoneme_confidence=[]),
@@ -195,7 +191,7 @@ class SpeechTurnService:
             text_result = SpeechTurnTextResult(
                 normalized_request=transcript,
                 intent="translate_request",
-                chinese="",   # will be filled only if your text model runs; otherwise fallback will speak
+                chinese="",
                 pinyin="",
                 notes=["Heuristic: detected translation request."],
             )
@@ -218,16 +214,13 @@ class SpeechTurnService:
         target_lang: str,
         base_url: str,
     ) -> tuple[SpeechTurnAudio | None, str | None, str | None, float, str | None]:
-        audio = None
-        audio_url = None
-        audio_mime = None
-        tts_error = None
-        tts_start = time.perf_counter()
-        audio_url = None
-        audio_mime = None
+        audio: SpeechTurnAudio | None = None
+        audio_url: str | None = None
+        audio_mime: str | None = None
+        tts_error: str | None = None
 
-        # ✅ Only TTS Chinese (don’t fall back to English transcript)
-        tts_text = chinese or f"I heard: {transcript}"
+        tts_start = time.perf_counter()
+        tts_text = (tts_text or "").strip()
 
         if tts_text:
             try:
@@ -250,9 +243,11 @@ class SpeechTurnService:
                     wf.writeframes(pcm_bytes)
 
                 self._cleanup_old_files()
+
                 audio_url = f"{base_url.rstrip('/')}/static/audio/{filename}"
                 audio_mime = "audio/wav"
                 audio = SpeechTurnAudio(format="wav", url=audio_url)
+
                 logger.info("TTS audio file saved: %s", file_path)
                 logger.info("TTS audio URL: %s", audio_url)
 
@@ -261,24 +256,6 @@ class SpeechTurnService:
 
         tts_ms = (time.perf_counter() - tts_start) * 1000
         return audio, audio_url, audio_mime, tts_ms, tts_error
-        return SpeechTurnResponse(
-            assistant_text=tts_text,
-            source_lang=source_lang,
-            target_lang=target_lang,
-            scenario=scenario,
-            transcript=transcript,
-            normalized_request=text_result.normalized_request,
-            intent=text_result.intent,
-            chinese=text_result.chinese,
-            pinyin=text_result.pinyin,
-            notes=notes,
-            audio=audio,
-            audio_url=audio_url,
-            audio_base64=audio.base64 if audio else None,
-            audio_mime=audio_mime,
-            tts_error=tts_error,
-            analysis=SpeechTurnAnalysis(overall_score=None, phoneme_confidence=[]),
-        )
 
     def _cleanup_old_files(self) -> None:
         if not os.path.exists(self._audio_dir):
@@ -295,7 +272,6 @@ class SpeechTurnService:
 
 
 def _normalize_notes(raw: Any) -> list[str]:
-    # Accept: list[str] or str or None
     if raw is None:
         return []
     if isinstance(raw, str):
@@ -314,18 +290,17 @@ def _build_response_parts(
     transcript: str,
     text_result: SpeechTurnTextResult,
 ) -> tuple[str, str, list[str], str]:
-    chinese = text_result.chinese
-    pinyin = text_result.pinyin
-    notes = text_result.notes
+    chinese = text_result.chinese or ""
+    pinyin = text_result.pinyin or ""
+    notes = text_result.notes or []
 
     # If model says translate_request but it's missing chinese, fall back to speaking what we heard
     if text_result.intent == "translate_request" and not chinese.strip():
         notes = notes + ["Translation incomplete; speaking a fallback. Please retry."]
-        # Treat as unknown but we will still TTS a fallback below
         chinese = ""
         pinyin = ""
 
-    # ✅ Only TTS Chinese (don’t fall back to English transcript)
+    # This will speak Chinese if present, otherwise a fallback.
     tts_text = chinese or f"I heard: {transcript}"
     return chinese, pinyin, notes, tts_text
 
@@ -335,7 +310,7 @@ def _parse_text_result(content: str, transcript: str) -> SpeechTurnTextResult:
         s = content.strip()
         s = re.sub(r"^```json\s*|\s*```$", "", s, flags=re.IGNORECASE)
 
-        payload = json.loads(s)  # with responseMimeType app/json, this should be clean
+        payload = json.loads(s)
 
         intent = str(payload.get("intent") or "unknown")
         if intent not in ("translate_request", "unknown"):
@@ -344,18 +319,18 @@ def _parse_text_result(content: str, transcript: str) -> SpeechTurnTextResult:
         chinese = str(payload.get("chinese") or "")
         pinyin = str(payload.get("pinyin") or "")
 
-        # If unknown, force empty
         if intent == "unknown":
             chinese, pinyin = "", ""
 
         return SpeechTurnTextResult(
-            normalized_request=str(payload.get("normalized_request") or f"How do I say: '{transcript}'?"),
+            normalized_request=str(
+                payload.get("normalized_request") or f"How do I say: '{transcript}'?"
+            ),
             intent=intent,  # type: ignore[assignment]
             chinese=chinese,
             pinyin=pinyin,
             notes=_normalize_notes(payload.get("notes")),
         )
-
     except Exception:
         return SpeechTurnTextResult(
             normalized_request=f"How do I say: '{transcript}'?",
