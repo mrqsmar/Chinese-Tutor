@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -15,13 +16,48 @@ import {
 } from "react-native";
 
 import type { ChatMessage } from "./src/types/chat";
+import { API_BASE_URL, logApiBaseUrl } from "./src/config/api";
 
-const API_URL =
-  process.env.EXPO_PUBLIC_API_URL ?? "http://192.168.1.100:8000";
 const STORAGE_KEY = "speakerPreference";
 const TYPING_INTERVAL_MS = 18;
 
 const createId = () => Math.random().toString(36).slice(2, 10);
+
+const wait = (ms: number) =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const fetchWithTimeout = async (
+  url: string,
+  options: RequestInit,
+  timeoutMs: number,
+  retryCount: number
+) => {
+  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    const startedAt = Date.now();
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      return { response, durationMs: Date.now() - startedAt };
+    } catch (error) {
+      clearTimeout(timeoutId);
+      const isTimeout =
+        error instanceof Error && error.name === "AbortError";
+      if (!isTimeout || attempt >= retryCount) {
+        throw error;
+      }
+      console.warn("Request timed out, retrying...");
+      await wait(1000);
+    }
+  }
+  throw new Error("Request timed out.");
+};
 
 type SpeakerPreference = "english" | "chinese";
 type MicPermissionState = "undetermined" | "granted" | "denied";
@@ -33,12 +69,18 @@ type SpeechTurnAudio = {
 };
 
 type SpeechTurnResponse = {
+  assistant_text: string;
   transcript: string;
   normalized_request: string;
   chinese: string;
   pinyin: string;
   notes: string[];
   audio?: SpeechTurnAudio | null;
+  audio_url?: string | null;
+  audio_base64?: string | null;
+  audio_mime?: string | null;
+  audio_job_id?: string | null;
+  audio_pending?: boolean | null;
   tts_error?: string | null;
 };
 
@@ -92,6 +134,7 @@ export default function App() {
   const soundRef = useRef<Audio.Sound | null>(null);
 
   useEffect(() => {
+    logApiBaseUrl("App start");
     const loadPreference = async () => {
       try {
         const stored = await AsyncStorage.getItem(STORAGE_KEY);
@@ -192,7 +235,8 @@ export default function App() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/api/chat`, {
+      logApiBaseUrl("Chat request");
+      const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -242,19 +286,97 @@ export default function App() {
     return false;
   };
 
-  const playVoiceAudio = async (audio: SpeechTurnAudio) => {
-    const uri =
-      audio.url ?? `data:audio/${audio.format};base64,${audio.base64}`;
-    if (!uri) {
-      return;
+  const createAudioFileUri = async (
+    audio: SpeechTurnAudio,
+    audioMime?: string | null
+  ) => {
+    if (audio.url) {
+      return audio.url;
     }
+    if (!audio.base64) {
+      return null;
+    }
+    const extension =
+      audioMime?.includes("mpeg") || audio.format === "mp3" ? "mp3" : "wav";
+    const fileUri = `${FileSystem.cacheDirectory}tts-${Date.now()}.${extension}`;
+    await FileSystem.writeAsStringAsync(fileUri, audio.base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return fileUri;
+  };
+
+  const playVoiceAudio = async (
+    audio: SpeechTurnAudio,
+    audioMime?: string | null
+  ) => {
+    const uri = await createAudioFileUri(audio, audioMime);
+    if (!uri) {
+      throw new Error("No audio URL or base64 provided.");
+    }
+    console.log("Voice audio URI:", uri);
     if (soundRef.current) {
       await soundRef.current.unloadAsync();
     }
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+    });
     const sound = new Audio.Sound();
+    sound.setOnPlaybackStatusUpdate((status) => {
+      console.log("Voice playback status:", status);
+    });
     await sound.loadAsync({ uri });
     await sound.playAsync();
     soundRef.current = sound;
+  };
+
+  const pollForAudioJob = async (jobId: string) => {
+    const maxAttempts = 10;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      logApiBaseUrl(`Audio poll attempt ${attempt}`);
+      const { response } = await fetchWithTimeout(
+        `${API_BASE_URL}/v1/speech/audio/${jobId}`,
+        {
+          method: "GET",
+          headers: { Accept: "application/json" },
+        },
+        30_000,
+        0
+      );
+      const raw = await response.text();
+      console.log("Audio poll status:", response.status);
+      console.log("Audio poll response:", raw.slice(0, 500));
+      if (!response.ok) {
+        setVoiceError("Audio fetch failed. Please try again.");
+        return;
+      }
+      const data = JSON.parse(raw) as {
+        status: "pending" | "ready" | "error";
+        audio_url?: string | null;
+        audio_base64?: string | null;
+        audio_mime?: string | null;
+        tts_error?: string | null;
+      };
+      if (data.status === "ready") {
+        const audioPayload = {
+          format: data.audio_mime?.includes("mpeg") ? "mp3" : "wav",
+          url: data.audio_url ?? undefined,
+          base64: data.audio_base64 ?? undefined,
+        };
+        if (audioPayload.url || audioPayload.base64) {
+          await playVoiceAudio(audioPayload, data.audio_mime ?? undefined);
+          return;
+        }
+        setVoiceError("Audio unavailable. Please try again.");
+        return;
+      }
+      if (data.status === "error") {
+        setVoiceError(data.tts_error ?? "Audio failed. Please try again.");
+        return;
+      }
+      await wait(1000);
+    }
+    setVoiceError("Audio is taking too long. Please try again.");
   };
 
   const startRecording = async () => {
@@ -292,11 +414,15 @@ export default function App() {
     setVoiceError(null);
     try {
       await recording.stopAndUnloadAsync();
+      const status = await recording.getStatusAsync();
       const uri = recording.getURI();
       recordingRef.current = null;
       if (!uri) {
         throw new Error("Missing recording URI");
       }
+      const fileInfo = await FileSystem.getInfoAsync(uri, { size: true });
+      console.log("Voice recording duration (ms):", status.durationMillis);
+      console.log("Voice recording file size (bytes):", fileInfo.size);
       const formData = new FormData();
       formData.append("audio", {
         uri,
@@ -308,27 +434,59 @@ export default function App() {
       formData.append("source_lang", "en");
       formData.append("target_lang", "zh");
 
-      const response = await fetch(`${API_URL}/v1/speech/turn`, {
-        method: "POST",
-        headers: { Accept: "application/json" },
-        body: formData,
-      });
+      logApiBaseUrl("Voice upload");
+      const { response, durationMs } = await fetchWithTimeout(
+        `${API_BASE_URL}/v1/speech/turn`,
+        {
+          method: "POST",
+          headers: { Accept: "application/json" },
+          body: formData,
+        },
+        90_000,
+        1
+      );
 
       const raw = await response.text();
+      console.log("Voice request duration (ms):", durationMs);
       console.log("Voice Status:", response.status);
-      console.log("Voice Response:", raw);
+      console.log("Voice Response Raw:", raw.slice(0, 500));
       if (!response.ok) {
         throw new Error(`Voice failed ${response.status}: ${raw}`);
       }
 
-      const data = JSON.parse(raw);
+      const data = JSON.parse(raw) as SpeechTurnResponse;
+      console.log("Voice Response Payload:", data);
       setVoiceTurn(data);
-      if (data.audio?.url || data.audio?.base64) {
-        await playVoiceAudio(data.audio);
+      const audioPayload = data.audio ?? {
+        format: data.audio_mime?.includes("mpeg") ? "mp3" : "wav",
+        url: data.audio_url ?? undefined,
+        base64: data.audio_base64 ?? undefined,
+      };
+      if (audioPayload.url || audioPayload.base64) {
+        try {
+          await playVoiceAudio(audioPayload, data.audio_mime);
+        } catch (playbackError) {
+          console.error("Voice playback error:", playbackError);
+          setVoiceError(
+            "Audio playback failed. Please check your volume and try again."
+          );
+        }
+      } else if (data.audio_pending && data.audio_job_id) {
+        await pollForAudioJob(data.audio_job_id);
+      } else if (!data.tts_error) {
+        setVoiceError("Audio unavailable. Please try again.");
       }
     } catch (voiceUploadError) {
       console.error("Voice upload error:", voiceUploadError);
-      setVoiceError("Voice request failed. Please try again.");
+      const isTimeout =
+        voiceUploadError instanceof Error &&
+        (voiceUploadError.name === "AbortError" ||
+          voiceUploadError.message.toLowerCase().includes("timed out"));
+      setVoiceError(
+        isTimeout
+          ? "Voice request timed out. Please try again."
+          : "Voice request failed. Please try again."
+      );
     } finally {
       setIsUploadingVoice(false);
     }
