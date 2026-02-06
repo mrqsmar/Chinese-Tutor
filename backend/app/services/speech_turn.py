@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import json
-import re
+import logging
 import os
+import re
 import time
 import wave
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ from uuid import uuid4
 import httpx
 
 from app.models.speech_turn import SpeechTurnAnalysis, SpeechTurnAudio, SpeechTurnResponse
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -169,6 +172,8 @@ class SpeechTurnService:
 
         audio = None
         tts_error = None
+        audio_url = None
+        audio_mime = None
 
         # ✅ Only TTS Chinese (don’t fall back to English transcript)
         tts_text = chinese or f"I heard: {transcript}"
@@ -195,12 +200,16 @@ class SpeechTurnService:
 
                 self._cleanup_old_files()
                 audio_url = f"{base_url.rstrip('/')}/static/audio/{filename}"
+                audio_mime = "audio/wav"
                 audio = SpeechTurnAudio(format="wav", url=audio_url)
+                logger.info("TTS audio file saved: %s", file_path)
+                logger.info("TTS audio URL: %s", audio_url)
 
             except Exception as exc:  # noqa: BLE001
                 tts_error = f"{type(exc).__name__}: {exc}"
 
         return SpeechTurnResponse(
+            assistant_text=tts_text,
             source_lang=source_lang,
             target_lang=target_lang,
             scenario=scenario,
@@ -211,6 +220,9 @@ class SpeechTurnService:
             pinyin=text_result.pinyin,
             notes=notes,
             audio=audio,
+            audio_url=audio_url,
+            audio_base64=audio.base64 if audio else None,
+            audio_mime=audio_mime,
             tts_error=tts_error,
             analysis=SpeechTurnAnalysis(overall_score=None, phoneme_confidence=[]),
         )
