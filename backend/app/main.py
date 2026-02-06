@@ -2,6 +2,9 @@ from __future__ import annotations
 from dotenv import load_dotenv
 
 from uuid import uuid4
+import asyncio
+import logging
+import time
 import wave
 
 import os
@@ -14,19 +17,25 @@ from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Upload
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app.models.speech_turn import SpeechTurnResponse
+from app.models.speech_turn import SpeechTurnAnalysis, SpeechTurnResponse
 from app.services.gemini_stt import GeminiSTTClient
 from app.services.gemini_tts import GeminiTTSClient
-from app.services.speech_turn import GeminiSpeechTurnTextClient, SpeechTurnService
+from app.services.speech_turn import (
+    GeminiSpeechTurnTextClient,
+    SpeechTurnService,
+    _build_response_parts,
+)
 
 load_dotenv()
 
 app = FastAPI(title="Chinese Tutor API", version="0.1.0")
 _speech_service: SpeechTurnService | None = None    
+logger = logging.getLogger(__name__)
 
 AUDIO_DIR = os.path.join(tempfile.gettempdir(), "chinese_tutor_audio")
 os.makedirs(AUDIO_DIR, exist_ok=True)
 app.mount("/static/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
+AUDIO_JOBS: dict[str, dict[str, str | None]] = {}
 
 
 class ChatRequest(BaseModel):
@@ -65,6 +74,14 @@ class LLMChatRequest(BaseModel):
 
 class LLMChatResponse(BaseModel):
     reply: str
+
+
+class SpeechAudioJobResponse(BaseModel):
+    status: Literal["pending", "ready", "error"]
+    audio_url: str | None = None
+    audio_base64: str | None = None
+    audio_mime: str | None = None
+    tts_error: str | None = None
 
 
 @app.get("/health")
@@ -290,6 +307,7 @@ async def _speech_turn_handler(
     target_lang: str,
     service: SpeechTurnService,
 ) -> SpeechTurnResponse:
+    request_start = time.perf_counter()
     audio_bytes = await audio.read()
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="Audio file is empty.")
@@ -299,13 +317,117 @@ async def _speech_turn_handler(
             mime_type = "audio/mp4"
         else:
             mime_type = "application/octet-stream"
-    return await service.process(
+    logger.info(
+        "Speech turn upload received: filename=%s content_type=%s bytes=%s",
+        audio.filename,
+        mime_type,
+        len(audio_bytes),
+    )
+    base_url = os.getenv("PUBLIC_BASE_URL") or str(request.base_url)
+
+    transcript, text_result, stt_ms, llm_ms = await service.run_stt_and_llm(
         audio_bytes=audio_bytes,
         mime_type=mime_type,
         source_lang=source_lang,
         target_lang=target_lang,
         scenario=scenario,
-        base_url=os.getenv("PUBLIC_BASE_URL") or str(request.base_url),
+    )
+    chinese, pinyin, notes, tts_text = _build_response_parts(transcript, text_result)
+    elapsed_ms = (time.perf_counter() - request_start) * 1000
+
+    if elapsed_ms > 15000:
+        job_id = uuid4().hex
+        AUDIO_JOBS[job_id] = {
+            "status": "pending",
+            "audio_url": None,
+            "audio_base64": None,
+            "audio_mime": None,
+            "tts_error": None,
+        }
+        logger.info(
+            "Speech turn pending audio job=%s stt_ms=%.1f llm_ms=%.1f total_ms=%.1f",
+            job_id,
+            stt_ms,
+            llm_ms,
+            elapsed_ms,
+        )
+
+        async def _run_audio_job() -> None:
+            audio, audio_url, audio_mime, tts_ms, tts_error = await service.synthesize_audio(
+                tts_text=tts_text,
+                target_lang=target_lang,
+                base_url=base_url,
+            )
+            AUDIO_JOBS[job_id] = {
+                "status": "ready" if audio_url else "error",
+                "audio_url": audio_url,
+                "audio_base64": audio.base64 if audio else None,
+                "audio_mime": audio_mime,
+                "tts_error": tts_error,
+            }
+            total_ms = (time.perf_counter() - request_start) * 1000
+            logger.info(
+                "Speech turn audio job=%s tts_ms=%.1f total_ms=%.1f",
+                job_id,
+                tts_ms,
+                total_ms,
+            )
+
+        asyncio.create_task(_run_audio_job())
+
+        return SpeechTurnResponse(
+            assistant_text=tts_text,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            scenario=scenario,
+            transcript=transcript,
+            normalized_request=text_result.normalized_request,
+            intent=text_result.intent,
+            chinese=chinese,
+            pinyin=pinyin,
+            notes=notes,
+            audio=None,
+            audio_url=None,
+            audio_base64=None,
+            audio_mime=None,
+            audio_job_id=job_id,
+            audio_pending=True,
+            tts_error=None,
+            analysis=SpeechTurnAnalysis(overall_score=None, phoneme_confidence=[]),
+        )
+
+    audio, audio_url, audio_mime, tts_ms, tts_error = await service.synthesize_audio(
+        tts_text=tts_text,
+        target_lang=target_lang,
+        base_url=base_url,
+    )
+    total_ms = (time.perf_counter() - request_start) * 1000
+    logger.info(
+        "Speech turn timings stt_ms=%.1f llm_ms=%.1f tts_ms=%.1f total_ms=%.1f",
+        stt_ms,
+        llm_ms,
+        tts_ms,
+        total_ms,
+    )
+    return SpeechTurnResponse(
+        assistant_text=tts_text,
+        source_lang=source_lang,
+        target_lang=target_lang,
+        scenario=scenario,
+        transcript=transcript,
+        normalized_request=text_result.normalized_request,
+        intent=text_result.intent,
+        chinese=chinese,
+        pinyin=pinyin,
+        notes=notes,
+        audio=audio,
+        audio_url=audio_url,
+        audio_base64=audio.base64 if audio else None,
+        audio_mime=audio_mime,
+        audio_job_id=None,
+        audio_pending=False,
+        tts_error=tts_error,
+        analysis=SpeechTurnAnalysis(overall_score=None, phoneme_confidence=[]),
     )
 
 
@@ -348,4 +470,18 @@ async def speech_turn_alias(
         source_lang=source_lang,
         target_lang=target_lang,
         service=service,
+    )
+
+
+@app.get("/v1/speech/audio/{job_id}", response_model=SpeechAudioJobResponse)
+async def speech_audio_job(job_id: str) -> SpeechAudioJobResponse:
+    job = AUDIO_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Audio job not found.")
+    return SpeechAudioJobResponse(
+        status=job.get("status") or "pending",
+        audio_url=job.get("audio_url"),
+        audio_base64=job.get("audio_base64"),
+        audio_mime=job.get("audio_mime"),
+        tts_error=job.get("tts_error"),
     )

@@ -37,6 +37,8 @@ class SpeechTurnResponse(BaseModel):
     audio_url: str | None = None
     audio_base64: str | None = None
     audio_mime: str | None = None
+    audio_job_id: str | None = None
+    audio_pending: bool | None = None
     tts_error: str | None = None
     analysis: SpeechTurnAnalysis
 
