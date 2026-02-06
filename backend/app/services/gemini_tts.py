@@ -3,6 +3,8 @@ from __future__ import annotations
 import base64
 import json
 import os
+import re
+from typing import Any
 
 import httpx
 
@@ -14,55 +16,69 @@ class GeminiTTSClient:
         self._api_key = api_key
         self._model = model or os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts")
 
-    async def synthesize(self, text: str, target_lang: str) -> tuple[bytes, str]:
+    def _parse_rate(self, mime_type: str | None) -> int:
+        # mime often looks like: audio/L16;codec=pcm;rate=24000
+        if not mime_type:
+            return 24000
+        m = re.search(r"rate=(\d+)", mime_type)
+        return int(m.group(1)) if m else 24000
+
+    async def synthesize(self, text: str, target_lang: str) -> tuple[bytes, dict[str, Any]]:
+        # Match the official REST example shape closely:
+        # - contents -> [{ parts: [{ text: ... }] }]
+        # - generationConfig -> responseModalities + speechConfig
+        # - include "model" in the JSON body
         payload = {
+            "contents": [
+                {
+                    "parts": [
+                        {
+                            # You can keep this simple for debug.
+                            # Later you can do: f"Say in {target_lang}: {text}"
+                            "text": text
+                        }
+                    ]
+                }
+            ],
             "generationConfig": {
                 "responseModalities": ["AUDIO"],
-                "responseMimeType": "audio/wav",
                 "speechConfig": {
                     "voiceConfig": {
                         "prebuiltVoiceConfig": {"voiceName": "Kore"}
                     }
                 },
             },
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [
-                        {"text": f"Speak in Mandarin Chinese: {text}"}
-                    ],
-                }
-            ],
+            "model": self._model,
         }
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self._model}:generateContent"
 
+
         async with httpx.AsyncClient(timeout=45.0) as client:
             response = await client.post(
                 url,
-                headers={
-                    "Content-Type": "application/json",
-                    "x-goog-api-key": self._api_key,
-                },
+                headers={"Content-Type": "application/json"},
+                params={"key": self._api_key},  # keep consistent with your text call
                 json=payload,
             )
 
         if response.status_code >= 400:
-            # This will reveal the exact Gemini error (model not supported, invalid arg, etc.)
             print("Gemini TTS error:", response.status_code, response.text)
 
         response.raise_for_status()
-
         data = response.json()
-        candidate = data.get("candidates", [{}])[0]
+
+        candidate = (data.get("candidates") or [{}])[0]
         parts = candidate.get("content", {}).get("parts", []) or []
+
         encoded_audio = None
-        mime_type = "audio/wav"
+        mime_type = None
+
         for part in parts:
-            inline = part.get("inlineData", {}) or {}
-            encoded_audio = inline.get("data")
-            if encoded_audio:
-                mime_type = inline.get("mimeType", mime_type)
+            inline = part.get("inlineData") or {}
+            if inline.get("data"):
+                encoded_audio = inline["data"]
+                mime_type = inline.get("mimeType")
                 break
 
         if not encoded_audio:
@@ -70,17 +86,17 @@ class GeminiTTSClient:
             response_json = json.dumps(data, ensure_ascii=False, indent=2)
             if len(response_json) > 4000:
                 response_json = response_json[:4000] + "...(truncated)"
-            print(
-                "Gemini TTS missing audio. finishReason:",
-                finish_reason,
-                "response:",
-                response_json,
-            )
-            raise ValueError(
-                f"Gemini TTS returned no audio. finishReason={finish_reason}."
-            )
+            print("Gemini TTS missing audio. finishReason:", finish_reason, "response:", response_json)
+            raise ValueError(f"Gemini TTS returned no audio. finishReason={finish_reason}.")
 
-        audio_bytes = base64.b64decode(encoded_audio)
-        # mimeType may vary; don't assume mp3/wav too aggressively
-        audio_format = "mp3" if "mpeg" in mime_type else ("wav" if "wav" in mime_type else "audio")
-        return audio_bytes, audio_format
+        pcm_bytes = base64.b64decode(encoded_audio)
+        rate = self._parse_rate(mime_type)
+
+        # Return PCM bytes + metadata so caller can wrap to WAV
+        meta = {
+            "mime_type": mime_type or "audio/L16;codec=pcm;rate=24000",
+            "sample_rate_hz": rate,
+            "channels": 1,
+            "sample_width_bytes": 2,  # 16-bit PCM
+        }
+        return pcm_bytes, meta

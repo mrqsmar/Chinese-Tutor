@@ -1,6 +1,9 @@
 from __future__ import annotations
 from dotenv import load_dotenv
 
+from uuid import uuid4
+import wave
+
 import os
 from typing import Literal
 
@@ -19,6 +22,7 @@ from app.services.speech_turn import GeminiSpeechTurnTextClient, SpeechTurnServi
 load_dotenv()
 
 app = FastAPI(title="Chinese Tutor API", version="0.1.0")
+_speech_service: SpeechTurnService | None = None    
 
 AUDIO_DIR = os.path.join(tempfile.gettempdir(), "chinese_tutor_audio")
 os.makedirs(AUDIO_DIR, exist_ok=True)
@@ -67,20 +71,64 @@ class LLMChatResponse(BaseModel):
 async def health() -> dict[str, bool]:
     return {"ok": True}
 
-
-def get_speech_turn_service() -> SpeechTurnService:
+@app.get("/debug/tts")
+async def debug_tts(text: str = "你好", target_lang: str = "zh") -> dict[str, str]:
+    """
+    Quick backend-only test:
+    - Generates TTS audio for `text`
+    - Saves a .wav under AUDIO_DIR
+    - Returns a URL under /static/audio that should be playable
+    """
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="Gemini API key not configured.")
+
+    tts_client = GeminiTTSClient(api_key=api_key)
+
+    try:
+        pcm_bytes, meta = await tts_client.synthesize(text, target_lang)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"TTS failed: {type(exc).__name__}: {exc}")
+
+    sample_rate = int(meta.get("sample_rate_hz", 24000))
+    channels = int(meta.get("channels", 1))
+    sampwidth = int(meta.get("sample_width_bytes", 2))
+
+    filename = f"{uuid4().hex}.wav"
+    file_path = os.path.join(AUDIO_DIR, filename)
+
+    with wave.open(file_path, "wb") as wf:
+        wf.setnchannels(channels)
+        wf.setsampwidth(sampwidth)
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm_bytes)
+
+    return {
+        "text": text,
+        "audio_url": f"/static/audio/{filename}",
+    }
+
+
+def get_speech_turn_service() -> SpeechTurnService:
+    global _speech_service
+    if _speech_service is not None:
+        return _speech_service
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="Gemini API key not configured.")
+
     stt_client = GeminiSTTClient(api_key=api_key)
     tts_client = GeminiTTSClient(api_key=api_key)
     text_client = GeminiSpeechTurnTextClient(api_key=api_key)
-    return SpeechTurnService(
+
+    _speech_service = SpeechTurnService(
         stt_client=stt_client,
         tts_client=tts_client,
         text_client=text_client,
         audio_dir=AUDIO_DIR,
     )
+    return _speech_service
 
 
 def _contains_chinese(text: str) -> bool:
@@ -257,7 +305,7 @@ async def _speech_turn_handler(
         source_lang=source_lang,
         target_lang=target_lang,
         scenario=scenario,
-        base_url=str(request.base_url),
+        base_url=os.getenv("PUBLIC_BASE_URL") or str(request.base_url),
     )
 
 

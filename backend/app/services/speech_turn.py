@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 import os
 import time
+import wave
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Any
 from uuid import uuid4
 
 import httpx
@@ -16,8 +18,8 @@ from app.models.speech_turn import SpeechTurnAnalysis, SpeechTurnAudio, SpeechTu
 class SpeechTurnTextResult:
     normalized_request: str
     intent: Literal["translate_request", "unknown"]
-    chinese: str | None
-    pinyin: str | None
+    chinese: str
+    pinyin: str
     notes: list[str]
 
 
@@ -27,6 +29,7 @@ class GeminiSpeechTurnTextClient:
             raise ValueError("Gemini API key not configured.")
         self._api_key = api_key
         self._model = model
+        self._client = httpx.AsyncClient(timeout=30.0)  # reuse connections
 
     async def generate(
         self,
@@ -36,44 +39,78 @@ class GeminiSpeechTurnTextClient:
         scenario: str | None,
     ) -> SpeechTurnTextResult:
         scenario_hint = f"Scenario: {scenario}." if scenario else ""
+
+        # Keep the prompt, but we’ll ALSO enforce schema (much more reliable).
         prompt = (
-            "You are helping an English learner. "
-            "Given a transcript, decide if the user wants a translation request. "
-            "Return ONLY valid JSON with keys: normalized_request, intent, chinese, pinyin, notes. "
-            "intent must be translate_request or unknown. "
-            "If intent is unknown, chinese and pinyin must be empty strings. "
-            f"Source language: {source_lang}. Target language: {target_lang}. {scenario_hint} "
-            f"Transcript: {transcript}"
+            "You are a Chinese tutor. "
+            "Decide if the user is asking how to say something in the target language. "
+            "Return JSON only."
+            f" Source language: {source_lang}. Target language: {target_lang}. {scenario_hint} "
+            f" Transcript: {transcript}"
         )
-        payload = {
-            "generationConfig": {"temperature": 0.2, "maxOutputTokens": 256},
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": prompt}],
-                }
-            ],
+
+        response_schema = {
+            "type": "object",
+            "properties": {
+                "normalized_request": {"type": "string"},
+                "intent": {"type": "string", "enum": ["translate_request", "unknown"]},
+                "chinese": {"type": "string"},
+                "pinyin": {"type": "string"},
+                "notes": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["normalized_request", "intent", "chinese", "pinyin", "notes"],
         }
 
-        async with httpx.AsyncClient(timeout=45.0) as client:
-            response = await client.post(
-                f"https://generativelanguage.googleapis.com/v1beta/models/{self._model}:generateContent",
+        payload = {
+            "generationConfig": {
+                "temperature": 0.2,
+                "maxOutputTokens": 256,
+                # JSON mode + schema → predictable output
+                "responseMimeType": "application/json",
+                "responseSchema": response_schema,
+            },
+            "contents": [{"role": "user", "parts": [{"text": prompt}]}],
+        }
+
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{self._model}:generateContent"
+
+        # retry on 429 (rate limit) with small backoff
+        last_exc: Exception | None = None
+        for attempt in range(3):
+            response = await self._client.post(
+                url,
                 headers={"Content-Type": "application/json"},
                 params={"key": self._api_key},
                 json=payload,
             )
 
-        response.raise_for_status()
-        data = response.json()
-        content = (
-            data.get("candidates", [{}])[0]
-            .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text")
-        )
-        if not content:
-            raise ValueError("Gemini text generation returned no content.")
-        return _parse_text_result(content, transcript)
+            if response.status_code == 429:
+                # backoff: 0.5s, 1.0s, 2.0s
+                wait = 0.5 * (2**attempt)
+                print(f"TEXT 429 Too Many Requests. retrying in {wait:.1f}s")
+                time.sleep(wait)
+                continue
+
+            try:
+                response.raise_for_status()
+            except Exception as exc:  # noqa: BLE001
+                last_exc = exc
+                break
+
+            data = response.json()
+            content = (
+                data.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text")
+            )
+            if not content:
+                raise ValueError("Gemini text generation returned no content.")
+
+            return _parse_text_result(content, transcript)
+
+        # If we got here, retries failed
+        raise last_exc or ValueError("Gemini text generation failed after retries.")
 
 
 class SpeechTurnService:
@@ -102,53 +139,81 @@ class SpeechTurnService:
         base_url: str,
     ) -> SpeechTurnResponse:
         transcript = await self._stt_client.transcribe(audio_bytes, mime_type, source_lang)
-        text_result = await self._text_client.generate(
-            transcript=transcript,
-            source_lang=source_lang,
-            target_lang=target_lang,
-            scenario=scenario,
-        )
+        if _looks_like_translate_request(transcript):
+            # skip the extra Gemini text call to avoid 429s
+            text_result = SpeechTurnTextResult(
+                normalized_request=transcript,
+                intent="translate_request",
+                chinese="",   # will be filled only if your text model runs; otherwise fallback will speak
+                pinyin="",
+                notes=["Heuristic: detected translation request."],
+            )
+        else:
+            text_result = await self._text_client.generate(
+                transcript=transcript,
+                source_lang=source_lang,
+                target_lang=target_lang,
+                scenario=scenario,
+            )
 
-        chinese = text_result.chinese or ""
-        pinyin = text_result.pinyin or ""
+        chinese = text_result.chinese
+        pinyin = text_result.pinyin
         notes = text_result.notes
 
-        if text_result.intent == "translate_request" and (not chinese or not pinyin):
-            notes = notes + ["Translation incomplete; please retry."]
+        # If model says translate_request but it's missing chinese, fall back to speaking what we heard
+        if text_result.intent == "translate_request" and not chinese.strip():
+            notes = notes + ["Translation incomplete; speaking a fallback. Please retry."]
+            # Treat as unknown but we will still TTS a fallback below
+            chinese = ""
+            pinyin = ""
 
-        tts_text = chinese or transcript
         audio = None
         tts_error = None
-        try:
-            audio_bytes, audio_format = await self._tts_client.synthesize(tts_text, target_lang)
-            if not audio_bytes:
-                raise ValueError("TTS returned no audio bytes.")
-            filename = f"{uuid4().hex}.{audio_format}"
-            file_path = os.path.join(self._audio_dir, filename)
-            with open(file_path, "wb") as handle:
-                handle.write(audio_bytes)
 
-            self._cleanup_old_files()
-            audio_url = f"{base_url.rstrip('/')}/static/audio/{filename}"
-            audio = SpeechTurnAudio(format=audio_format, url=audio_url)
-        except Exception as exc:  # noqa: BLE001
-            tts_error = f"{type(exc).__name__}: {exc}"
+        # ✅ Only TTS Chinese (don’t fall back to English transcript)
+        tts_text = chinese or f"I heard: {transcript}"
 
-        response = SpeechTurnResponse(
+        if tts_text:
+            try:
+                pcm_bytes, tts_meta = await self._tts_client.synthesize(tts_text, target_lang)
+                if not pcm_bytes:
+                    raise ValueError("TTS returned no audio bytes.")
+
+                # Gemini TTS returns raw PCM; write a proper WAV file (24kHz mono 16-bit by default)
+                sample_rate = int(tts_meta.get("sample_rate_hz", 24000))
+                channels = int(tts_meta.get("channels", 1))
+                sampwidth = int(tts_meta.get("sample_width_bytes", 2))
+
+                filename = f"{uuid4().hex}.wav"
+                file_path = os.path.join(self._audio_dir, filename)
+
+                with wave.open(file_path, "wb") as wf:
+                    wf.setnchannels(channels)
+                    wf.setsampwidth(sampwidth)
+                    wf.setframerate(sample_rate)
+                    wf.writeframes(pcm_bytes)
+
+                self._cleanup_old_files()
+                audio_url = f"{base_url.rstrip('/')}/static/audio/{filename}"
+                audio = SpeechTurnAudio(format="wav", url=audio_url)
+
+            except Exception as exc:  # noqa: BLE001
+                tts_error = f"{type(exc).__name__}: {exc}"
+
+        return SpeechTurnResponse(
             source_lang=source_lang,
             target_lang=target_lang,
             scenario=scenario,
             transcript=transcript,
             normalized_request=text_result.normalized_request,
             intent=text_result.intent,
-            chinese=chinese if text_result.intent == "translate_request" else "",
-            pinyin=pinyin if text_result.intent == "translate_request" else "",
+            chinese=text_result.chinese,
+            pinyin=text_result.pinyin,
             notes=notes,
             audio=audio,
             tts_error=tts_error,
             analysis=SpeechTurnAnalysis(overall_score=None, phoneme_confidence=[]),
         )
-        return response
 
     def _cleanup_old_files(self) -> None:
         if not os.path.exists(self._audio_dir):
@@ -164,24 +229,49 @@ class SpeechTurnService:
                     continue
 
 
+def _normalize_notes(raw: Any) -> list[str]:
+    # Accept: list[str] or str or None
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [raw]
+    if isinstance(raw, list):
+        return [str(x) for x in raw]
+    return [str(raw)]
+
+
+def _looks_like_translate_request(t: str) -> bool:
+    s = (t or "").lower()
+    return ("how do i say" in s) or ("say " in s and " in chinese" in s) or ("in chinese" in s)
+
+
 def _parse_text_result(content: str, transcript: str) -> SpeechTurnTextResult:
     try:
-        start = content.find("{")
-        end = content.rfind("}")
-        if start == -1 or end == -1:
-            raise ValueError("No JSON payload")
-        payload = json.loads(content[start : end + 1])
-        intent = payload.get("intent") or "unknown"
-        if intent not in {"translate_request", "unknown"}:
+        s = content.strip()
+        s = re.sub(r"^```json\s*|\s*```$", "", s, flags=re.IGNORECASE)
+
+        payload = json.loads(s)  # with responseMimeType app/json, this should be clean
+
+        intent = str(payload.get("intent") or "unknown")
+        if intent not in ("translate_request", "unknown"):
             intent = "unknown"
+
+        chinese = str(payload.get("chinese") or "")
+        pinyin = str(payload.get("pinyin") or "")
+
+        # If unknown, force empty
+        if intent == "unknown":
+            chinese, pinyin = "", ""
+
         return SpeechTurnTextResult(
-            normalized_request=str(payload.get("normalized_request") or transcript),
-            intent=intent,
-            chinese=str(payload.get("chinese") or ""),
-            pinyin=str(payload.get("pinyin") or ""),
-            notes=list(payload.get("notes") or []),
+            normalized_request=str(payload.get("normalized_request") or f"How do I say: '{transcript}'?"),
+            intent=intent,  # type: ignore[assignment]
+            chinese=chinese,
+            pinyin=pinyin,
+            notes=_normalize_notes(payload.get("notes")),
         )
-    except (ValueError, json.JSONDecodeError):
+
+    except Exception:
         return SpeechTurnTextResult(
             normalized_request=f"How do I say: '{transcript}'?",
             intent="unknown",
