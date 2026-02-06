@@ -12,6 +12,8 @@ from uuid import uuid4
 
 import httpx
 
+from app.security import create_audio_token
+
 from app.models.speech_turn import SpeechTurnAnalysis, SpeechTurnAudio, SpeechTurnResponse
 
 logger = logging.getLogger(__name__)
@@ -244,12 +246,14 @@ class SpeechTurnService:
 
                 self._cleanup_old_files()
 
-                audio_url = f"{base_url.rstrip('/')}/static/audio/{filename}"
+                audio_token = create_audio_token(filename)
+                audio_url = (
+                    f"{base_url.rstrip('/')}/static/audio/{filename}?token={audio_token}"
+                )
                 audio_mime = "audio/wav"
                 audio = SpeechTurnAudio(format="wav", url=audio_url)
 
                 logger.info("TTS audio file saved: %s", file_path)
-                logger.info("TTS audio URL: %s", audio_url)
 
             except Exception as exc:  # noqa: BLE001
                 tts_error = f"{type(exc).__name__}: {exc}"

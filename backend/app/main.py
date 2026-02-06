@@ -2,6 +2,7 @@ from __future__ import annotations
 from dotenv import load_dotenv
 
 from uuid import uuid4
+from datetime import datetime, timezone
 import asyncio
 import logging
 import time
@@ -13,11 +14,35 @@ from typing import Literal
 import httpx
 import tempfile
 
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
-from fastapi.staticfiles import StaticFiles
+from fastapi import (
+    Body,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from app.models.speech_turn import SpeechTurnAnalysis, SpeechTurnResponse
+from app.security import (
+    AuthContext,
+    add_redaction_filter,
+    create_audio_token,
+    get_auth_context,
+    get_default_roles,
+    issue_tokens,
+    require_roles,
+    require_scopes,
+    revoke_refresh_token,
+    rotate_refresh_token,
+    verify_audio_token,
+    verify_password,
+)
 from app.services.gemini_stt import GeminiSTTClient
 from app.services.gemini_tts import GeminiTTSClient
 from app.services.speech_turn import (
@@ -27,6 +52,7 @@ from app.services.speech_turn import (
 )
 
 load_dotenv()
+add_redaction_filter()
 
 app = FastAPI(title="Chinese Tutor API", version="0.1.0")
 _speech_service: SpeechTurnService | None = None    
@@ -34,8 +60,97 @@ logger = logging.getLogger(__name__)
 
 AUDIO_DIR = os.path.join(tempfile.gettempdir(), "chinese_tutor_audio")
 os.makedirs(AUDIO_DIR, exist_ok=True)
-app.mount("/static/audio", StaticFiles(directory=AUDIO_DIR), name="audio")
 AUDIO_JOBS: dict[str, dict[str, str | None]] = {}
+
+MAX_AUDIO_BYTES = int(os.getenv("MAX_AUDIO_BYTES", "10485760"))
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+IS_PRODUCTION = ENVIRONMENT == "production"
+
+COOKIE_NAME = "refresh_token"
+
+
+class RateLimiter:
+    def __init__(self) -> None:
+        self._requests: dict[str, list[float]] = {}
+
+    def check(self, key: str, limit: int, window_seconds: int) -> None:
+        now = time.time()
+        window_start = now - window_seconds
+        timestamps = [t for t in self._requests.get(key, []) if t >= window_start]
+        if len(timestamps) >= limit:
+            raise HTTPException(status_code=429, detail="Too many requests.")
+        timestamps.append(now)
+        self._requests[key] = timestamps
+
+
+rate_limiter = RateLimiter()
+
+
+def _client_key(request: Request, suffix: str) -> str:
+    host = request.client.host if request.client else "unknown"
+    return f"{host}:{suffix}"
+
+
+def _is_https_request(request: Request) -> bool:
+    forwarded = request.headers.get("x-forwarded-proto")
+    if forwarded:
+        return forwarded == "https"
+    return request.url.scheme == "https"
+
+
+def _require_https(request: Request) -> None:
+    if IS_PRODUCTION and not _is_https_request(request):
+        raise HTTPException(status_code=400, detail="HTTPS is required.")
+
+
+def _cors_origins() -> list[str]:
+    raw = os.getenv("CORS_ALLOWED_ORIGINS", "")
+    origins = [o.strip() for o in raw.split(",") if o.strip()]
+    if not IS_PRODUCTION:
+        origins.extend(
+            [
+                "http://localhost:19006",
+                "http://127.0.0.1:19006",
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                "http://localhost:8081",
+                "http://127.0.0.1:8081",
+            ]
+        )
+    return list(dict.fromkeys(origins))
+
+
+allowed_origins = _cors_origins()
+if allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Authorization", "Content-Type", "Accept", "X-Client-Type"],
+    )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    _require_https(request)
+    response = await call_next(request)
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=()"
+    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none';"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
+
+@app.middleware("http")
+async def body_limit_middleware(request: Request, call_next):
+    if request.url.path in {"/v1/speech/turn", "/speech_turn"}:
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_AUDIO_BYTES:
+            return JSONResponse(status_code=413, content={"detail": "Audio upload too large."})
+    return await call_next(request)
 
 
 class ChatRequest(BaseModel):
@@ -84,12 +199,112 @@ class SpeechAudioJobResponse(BaseModel):
     tts_error: str | None = None
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=200)
+    password: str = Field(..., min_length=8, max_length=200)
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: Literal["bearer"] = "bearer"
+    expires_in: int
+    refresh_token: str | None = None
+
+
+def _set_refresh_cookie(response: JSONResponse, token: str | None) -> None:
+    if token is None:
+        response.delete_cookie(COOKIE_NAME, path="/")
+        return
+    response.set_cookie(
+        COOKIE_NAME,
+        token,
+        httponly=True,
+        secure=IS_PRODUCTION,
+        samesite="lax",
+        path="/",
+        max_age=int(60 * 60 * 24 * 30),
+    )
+
+
+@app.post("/auth/login", response_model=LoginResponse)
+async def login(request: Request, payload: LoginRequest) -> LoginResponse:
+    rate_limiter.check(_client_key(request, "login"), limit=5, window_seconds=60)
+    _require_https(request)
+    if not verify_password(payload.username, payload.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials.")
+    roles = get_default_roles(payload.username)
+    scopes = ["chat:write", "speech:write"]
+    tokens = issue_tokens(payload.username, roles=roles, scopes=scopes)
+    expires_in = int(
+        (tokens["access_expires_at"] - datetime.now(timezone.utc)).total_seconds()
+    )
+    response_payload = LoginResponse(
+        access_token=tokens["access_token"],
+        expires_in=max(expires_in, 0),
+        refresh_token=None,
+    )
+    response = JSONResponse(content=response_payload.model_dump())
+    client_type = request.headers.get("x-client-type", "mobile")
+    if client_type == "web":
+        _set_refresh_cookie(response, tokens["refresh_token"])
+    else:
+        response_payload.refresh_token = tokens["refresh_token"]
+        response = JSONResponse(content=response_payload.model_dump())
+    return response
+
+
+@app.post("/auth/refresh", response_model=LoginResponse)
+async def refresh(
+    request: Request, refresh_token: str | None = Body(default=None, embed=True)
+) -> LoginResponse:
+    rate_limiter.check(_client_key(request, "refresh"), limit=10, window_seconds=60)
+    _require_https(request)
+    token = refresh_token or request.cookies.get(COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=401, detail="Missing refresh token.")
+    tokens = rotate_refresh_token(token)
+    expires_in = int(
+        (tokens["access_expires_at"] - datetime.now(timezone.utc)).total_seconds()
+    )
+    response_payload = LoginResponse(
+        access_token=tokens["access_token"],
+        expires_in=max(expires_in, 0),
+        refresh_token=None,
+    )
+    response = JSONResponse(content=response_payload.model_dump())
+    client_type = request.headers.get("x-client-type", "mobile")
+    if client_type == "web":
+        _set_refresh_cookie(response, tokens["refresh_token"])
+    else:
+        response_payload.refresh_token = tokens["refresh_token"]
+        response = JSONResponse(content=response_payload.model_dump())
+    return response
+
+
+@app.post("/auth/logout")
+async def logout(
+    request: Request, refresh_token: str | None = Body(default=None, embed=True)
+) -> dict[str, bool]:
+    _require_https(request)
+    token = refresh_token or request.cookies.get(COOKIE_NAME)
+    if token:
+        revoke_refresh_token(token)
+    response = JSONResponse(content={"ok": True})
+    _set_refresh_cookie(response, None)
+    return response
+
+
 @app.get("/health")
-async def health() -> dict[str, bool]:
+async def health(_: AuthContext = Depends(get_auth_context)) -> dict[str, bool]:
     return {"ok": True}
 
+
 @app.get("/debug/tts")
-async def debug_tts(text: str = "你好", target_lang: str = "zh") -> dict[str, str]:
+async def debug_tts(
+    text: str = "你好",
+    target_lang: str = "zh",
+    _: AuthContext = Depends(require_roles("admin")),
+) -> dict[str, str]:
     """
     Quick backend-only test:
     - Generates TTS audio for `text`
@@ -122,8 +337,17 @@ async def debug_tts(text: str = "你好", target_lang: str = "zh") -> dict[str, 
 
     return {
         "text": text,
-        "audio_url": f"/static/audio/{filename}",
+        "audio_url": f"/static/audio/{filename}?token={create_audio_token(filename)}",
     }
+
+
+@app.get("/static/audio/{filename}")
+async def audio_file(filename: str, token: str) -> FileResponse:
+    verify_audio_token(token, filename)
+    file_path = os.path.join(AUDIO_DIR, filename)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="Audio not found.")
+    return FileResponse(file_path, media_type="audio/wav")
 
 
 def get_speech_turn_service() -> SpeechTurnService:
@@ -238,7 +462,9 @@ def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest) -> ChatResponse:
+async def chat(
+    request: ChatRequest, _: AuthContext = Depends(require_scopes("chat:write"))
+) -> ChatResponse:
     message = request.message.strip()
     if request.level == "intermediate":
         response = _build_intermediate_response(message)
@@ -251,7 +477,9 @@ async def chat(request: ChatRequest) -> ChatResponse:
 
 
 @app.post("/api/chat", response_model=LLMChatResponse)
-async def llm_chat(request: LLMChatRequest) -> LLMChatResponse:
+async def llm_chat(
+    request: LLMChatRequest, _: AuthContext = Depends(require_scopes("chat:write"))
+) -> LLMChatResponse:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         raise HTTPException(status_code=503, detail="Gemini API key not configured.")
@@ -306,11 +534,14 @@ async def _speech_turn_handler(
     source_lang: str,
     target_lang: str,
     service: SpeechTurnService,
+    auth: AuthContext,
 ) -> SpeechTurnResponse:
     request_start = time.perf_counter()
     audio_bytes = await audio.read()
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="Audio file is empty.")
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        raise HTTPException(status_code=413, detail="Audio upload too large.")
     mime_type = audio.content_type
     if not mime_type:
         if (audio.filename or "").endswith(".m4a"):
@@ -343,6 +574,7 @@ async def _speech_turn_handler(
             "audio_base64": None,
             "audio_mime": None,
             "tts_error": None,
+            "owner_id": auth.user_id,
         }
         logger.info(
             "Speech turn pending audio job=%s stt_ms=%.1f llm_ms=%.1f total_ms=%.1f",
@@ -364,6 +596,7 @@ async def _speech_turn_handler(
                 "audio_base64": audio.base64 if audio else None,
                 "audio_mime": audio_mime,
                 "tts_error": tts_error,
+                "owner_id": auth.user_id,
             }
             total_ms = (time.perf_counter() - request_start) * 1000
             logger.info(
@@ -440,7 +673,9 @@ async def speech_turn(
     source_lang: str = Form("en"),
     target_lang: str = Form("zh"),
     service: SpeechTurnService = Depends(get_speech_turn_service),
+    auth: AuthContext = Depends(require_scopes("speech:write")),
 ) -> SpeechTurnResponse:
+    rate_limiter.check(_client_key(request, "speech_turn"), limit=10, window_seconds=60)
     return await _speech_turn_handler(
         request=request,
         audio=audio,
@@ -449,6 +684,7 @@ async def speech_turn(
         source_lang=source_lang,
         target_lang=target_lang,
         service=service,
+        auth=auth,
     )
 
 
@@ -461,7 +697,9 @@ async def speech_turn_alias(
     source_lang: str = Form("en"),
     target_lang: str = Form("zh"),
     service: SpeechTurnService = Depends(get_speech_turn_service),
+    auth: AuthContext = Depends(require_scopes("speech:write")),
 ) -> SpeechTurnResponse:
+    rate_limiter.check(_client_key(request, "speech_turn"), limit=10, window_seconds=60)
     return await _speech_turn_handler(
         request=request,
         audio=audio,
@@ -470,14 +708,19 @@ async def speech_turn_alias(
         source_lang=source_lang,
         target_lang=target_lang,
         service=service,
+        auth=auth,
     )
 
 
 @app.get("/v1/speech/audio/{job_id}", response_model=SpeechAudioJobResponse)
-async def speech_audio_job(job_id: str) -> SpeechAudioJobResponse:
+async def speech_audio_job(
+    job_id: str, auth: AuthContext = Depends(require_scopes("speech:write"))
+) -> SpeechAudioJobResponse:
     job = AUDIO_JOBS.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Audio job not found.")
+    if job.get("owner_id") != auth.user_id and "admin" not in auth.roles:
+        raise HTTPException(status_code=403, detail="Not authorized.")
     return SpeechAudioJobResponse(
         status=job.get("status") or "pending",
         audio_url=job.get("audio_url"),
