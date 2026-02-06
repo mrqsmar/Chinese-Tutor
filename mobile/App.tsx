@@ -15,6 +15,12 @@ import {
   View,
 } from "react-native";
 
+import LockScreen from "./src/components/LockScreen";
+import {
+  clearUnlock,
+  hasValidUnlock,
+  persistUnlock,
+} from "./src/config/appLock";
 import type { ChatMessage } from "./src/types/chat";
 import { API_BASE_URL, logApiBaseUrl } from "./src/config/api";
 
@@ -121,6 +127,9 @@ export default function App() {
   const [input, setInput] = useState("");
   const [preference, setPreference] = useState<SpeakerPreference | null>(null);
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
+  const [isAppUnlocked, setIsAppUnlocked] = useState(false);
+  const [isLoadingAppLock, setIsLoadingAppLock] = useState(true);
+  const [isUnlocking, setIsUnlocking] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [micPermission, setMicPermission] =
@@ -135,6 +144,20 @@ export default function App() {
 
   useEffect(() => {
     logApiBaseUrl("App start");
+    const loadAppLock = async () => {
+      const unlocked = await hasValidUnlock();
+      setIsAppUnlocked(unlocked);
+      setIsLoadingAppLock(false);
+    };
+
+    loadAppLock();
+  }, []);
+
+  useEffect(() => {
+    if (!isAppUnlocked) {
+      return;
+    }
+
     const loadPreference = async () => {
       try {
         const stored = await AsyncStorage.getItem(STORAGE_KEY);
@@ -147,7 +170,22 @@ export default function App() {
     };
 
     loadPreference();
-  }, []);
+  }, [isAppUnlocked]);
+
+  const handleUnlock = async () => {
+    setIsUnlocking(true);
+    try {
+      await persistUnlock();
+      setIsAppUnlocked(true);
+    } finally {
+      setIsUnlocking(false);
+    }
+  };
+
+  const handleLock = async () => {
+    await clearUnlock();
+    setIsAppUnlocked(false);
+  };
 
   const handleSelectPreference = async (selection: SpeakerPreference) => {
     setPreference(selection);
@@ -524,6 +562,18 @@ export default function App() {
     </View>
   );
 
+  if (isLoadingAppLock) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2F6FED" />
+      </SafeAreaView>
+    );
+  }
+
+  if (!isAppUnlocked) {
+    return <LockScreen onUnlock={handleUnlock} isSubmitting={isUnlocking} />;
+  }
+
   if (isLoadingPreference) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
@@ -544,7 +594,9 @@ export default function App() {
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Chinese Tutor</Text>
+          <Text style={styles.title} onLongPress={handleLock}>
+            Chinese Tutor
+          </Text>
           <Text style={styles.subtitle}>{systemHint}</Text>
         </View>
 
