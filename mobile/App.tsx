@@ -1,5 +1,6 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
+import * as FileSystem from "expo-file-system";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -33,12 +34,16 @@ type SpeechTurnAudio = {
 };
 
 type SpeechTurnResponse = {
+  assistant_text: string;
   transcript: string;
   normalized_request: string;
   chinese: string;
   pinyin: string;
   notes: string[];
   audio?: SpeechTurnAudio | null;
+  audio_url?: string | null;
+  audio_base64?: string | null;
+  audio_mime?: string | null;
   tts_error?: string | null;
 };
 
@@ -242,16 +247,45 @@ export default function App() {
     return false;
   };
 
-  const playVoiceAudio = async (audio: SpeechTurnAudio) => {
-    const uri =
-      audio.url ?? `data:audio/${audio.format};base64,${audio.base64}`;
-    if (!uri) {
-      return;
+  const createAudioFileUri = async (
+    audio: SpeechTurnAudio,
+    audioMime?: string | null
+  ) => {
+    if (audio.url) {
+      return audio.url;
     }
+    if (!audio.base64) {
+      return null;
+    }
+    const extension =
+      audioMime?.includes("mpeg") || audio.format === "mp3" ? "mp3" : "wav";
+    const fileUri = `${FileSystem.cacheDirectory}tts-${Date.now()}.${extension}`;
+    await FileSystem.writeAsStringAsync(fileUri, audio.base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    return fileUri;
+  };
+
+  const playVoiceAudio = async (
+    audio: SpeechTurnAudio,
+    audioMime?: string | null
+  ) => {
+    const uri = await createAudioFileUri(audio, audioMime);
+    if (!uri) {
+      throw new Error("No audio URL or base64 provided.");
+    }
+    console.log("Voice audio URI:", uri);
     if (soundRef.current) {
       await soundRef.current.unloadAsync();
     }
+    await Audio.setAudioModeAsync({
+      allowsRecordingIOS: false,
+      playsInSilentModeIOS: true,
+    });
     const sound = new Audio.Sound();
+    sound.setOnPlaybackStatusUpdate((status) => {
+      console.log("Voice playback status:", status);
+    });
     await sound.loadAsync({ uri });
     await sound.playAsync();
     soundRef.current = sound;
@@ -316,15 +350,30 @@ export default function App() {
 
       const raw = await response.text();
       console.log("Voice Status:", response.status);
-      console.log("Voice Response:", raw);
+      console.log("Voice Response Raw:", raw);
       if (!response.ok) {
         throw new Error(`Voice failed ${response.status}: ${raw}`);
       }
 
-      const data = JSON.parse(raw);
+      const data = JSON.parse(raw) as SpeechTurnResponse;
+      console.log("Voice Response Payload:", data);
       setVoiceTurn(data);
-      if (data.audio?.url || data.audio?.base64) {
-        await playVoiceAudio(data.audio);
+      const audioPayload = data.audio ?? {
+        format: data.audio_mime?.includes("mpeg") ? "mp3" : "wav",
+        url: data.audio_url ?? undefined,
+        base64: data.audio_base64 ?? undefined,
+      };
+      if (audioPayload.url || audioPayload.base64) {
+        try {
+          await playVoiceAudio(audioPayload, data.audio_mime);
+        } catch (playbackError) {
+          console.error("Voice playback error:", playbackError);
+          setVoiceError(
+            "Audio playback failed. Please check your volume and try again."
+          );
+        }
+      } else if (!data.tts_error) {
+        setVoiceError("Audio unavailable. Please try again.");
       }
     } catch (voiceUploadError) {
       console.error("Voice upload error:", voiceUploadError);

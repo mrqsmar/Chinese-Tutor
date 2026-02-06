@@ -23,6 +23,7 @@ class SpeechTurnAnalysis(BaseModel):
 
 
 class SpeechTurnResponse(BaseModel):
+    assistant_text: str
     source_lang: str
     target_lang: str
     scenario: str | None = None
@@ -33,6 +34,9 @@ class SpeechTurnResponse(BaseModel):
     pinyin: str | None = None
     notes: list[str] = Field(default_factory=list)
     audio: SpeechTurnAudio | None = None
+    audio_url: str | None = None
+    audio_base64: str | None = None
+    audio_mime: str | None = None
     tts_error: str | None = None
     analysis: SpeechTurnAnalysis
 

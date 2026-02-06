@@ -2,11 +2,14 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 from typing import Any
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiTTSClient:
@@ -52,6 +55,7 @@ class GeminiTTSClient:
         }
 
         url = f"https://generativelanguage.googleapis.com/v1beta/models/{self._model}:generateContent"
+        logger.info("TTS request payload: %s", payload)
 
 
         async with httpx.AsyncClient(timeout=45.0) as client:
@@ -90,6 +94,7 @@ class GeminiTTSClient:
             raise ValueError(f"Gemini TTS returned no audio. finishReason={finish_reason}.")
 
         pcm_bytes = base64.b64decode(encoded_audio)
+        logger.info("TTS audio bytes length: %s", len(pcm_bytes))
         rate = self._parse_rate(mime_type)
 
         # Return PCM bytes + metadata so caller can wrap to WAV
