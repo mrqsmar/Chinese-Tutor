@@ -15,7 +15,7 @@
     "expo-audio": "~1.1.1",
     "expo-av": "~16.0.8",
     "expo-file-system": "~19.0.21",
-    "expo-secure-store": "~14.0.2",
+    "expo-secure-store": "~15.0.8",
     "expo-video": "~3.0.15",
     "react": "19.1.0",
     "react-native": "0.81.5",
