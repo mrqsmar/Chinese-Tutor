@@ -450,6 +450,7 @@ export default function App() {
       console.log("Voice request duration (ms):", durationMs);
       console.log("Voice Status:", response.status);
       console.log("Voice Response Raw:", raw.slice(0, 500));
+      console.log("Voice Response Raw:", raw);
       if (!response.ok) {
         throw new Error(`Voice failed ${response.status}: ${raw}`);
       }

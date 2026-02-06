@@ -223,6 +223,11 @@ class SpeechTurnService:
         audio_mime = None
         tts_error = None
         tts_start = time.perf_counter()
+        audio_url = None
+        audio_mime = None
+
+        # ✅ Only TTS Chinese (don’t fall back to English transcript)
+        tts_text = chinese or f"I heard: {transcript}"
 
         if tts_text:
             try:
@@ -256,6 +261,24 @@ class SpeechTurnService:
 
         tts_ms = (time.perf_counter() - tts_start) * 1000
         return audio, audio_url, audio_mime, tts_ms, tts_error
+        return SpeechTurnResponse(
+            assistant_text=tts_text,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            scenario=scenario,
+            transcript=transcript,
+            normalized_request=text_result.normalized_request,
+            intent=text_result.intent,
+            chinese=text_result.chinese,
+            pinyin=text_result.pinyin,
+            notes=notes,
+            audio=audio,
+            audio_url=audio_url,
+            audio_base64=audio.base64 if audio else None,
+            audio_mime=audio_mime,
+            tts_error=tts_error,
+            analysis=SpeechTurnAnalysis(overall_score=None, phoneme_confidence=[]),
+        )
 
     def _cleanup_old_files(self) -> None:
         if not os.path.exists(self._audio_dir):
