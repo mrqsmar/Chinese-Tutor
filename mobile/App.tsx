@@ -15,6 +15,8 @@ import {
   View,
 } from "react-native";
 
+import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
+import AuthScreen from "./src/components/AuthScreen";
 import LockScreen from "./src/components/LockScreen";
 import {
   clearUnlock,
@@ -22,7 +24,9 @@ import {
   persistUnlock,
 } from "./src/config/appLock";
 import type { ChatMessage } from "./src/types/chat";
-import { API_BASE_URL, logApiBaseUrl } from "./src/config/api";
+import { assertApiBaseUrl, logApiBaseUrl } from "./src/config/api";
+import { apiFetch, apiFetchWithTimeout } from "./src/config/apiClient";
+import { login, logout, refreshSession } from "./src/config/auth";
 
 const STORAGE_KEY = "speakerPreference";
 const TYPING_INTERVAL_MS = 18;
@@ -33,37 +37,6 @@ const wait = (ms: number) =>
   new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-
-const fetchWithTimeout = async (
-  url: string,
-  options: RequestInit,
-  timeoutMs: number,
-  retryCount: number
-) => {
-  for (let attempt = 0; attempt <= retryCount; attempt += 1) {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-    const startedAt = Date.now();
-    try {
-      const response = await fetch(url, {
-        ...options,
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      return { response, durationMs: Date.now() - startedAt };
-    } catch (error) {
-      clearTimeout(timeoutId);
-      const isTimeout =
-        error instanceof Error && error.name === "AbortError";
-      if (!isTimeout || attempt >= retryCount) {
-        throw error;
-      }
-      console.warn("Request timed out, retrying...");
-      await wait(1000);
-    }
-  }
-  throw new Error("Request timed out.");
-};
 
 type SpeakerPreference = "english" | "chinese";
 type MicPermissionState = "undetermined" | "granted" | "denied";
@@ -130,6 +103,11 @@ export default function App() {
   const [isAppUnlocked, setIsAppUnlocked] = useState(false);
   const [isLoadingAppLock, setIsLoadingAppLock] = useState(true);
   const [isUnlocking, setIsUnlocking] = useState(false);
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [micPermission, setMicPermission] =
@@ -157,6 +135,39 @@ export default function App() {
     if (!isAppUnlocked) {
       return;
     }
+    const init = async () => {
+      const status = assertApiBaseUrl();
+      if (!status.ok) {
+        setApiError(status.reason);
+        setIsBootstrapping(false);
+        return;
+      }
+      setApiError(null);
+      try {
+        const refreshed = await refreshSession();
+        if (refreshed) {
+          const response = await apiFetch("/health");
+          if (!response.ok) {
+            throw new Error("Health check failed");
+          }
+          setIsAuthenticated(true);
+        } else {
+          setIsAuthenticated(false);
+        }
+      } catch {
+        setIsAuthenticated(false);
+      } finally {
+        setIsBootstrapping(false);
+      }
+    };
+
+    void init();
+  }, [isAppUnlocked]);
+
+  useEffect(() => {
+    if (!isAppUnlocked || !isAuthenticated) {
+      return;
+    }
 
     const loadPreference = async () => {
       try {
@@ -170,7 +181,7 @@ export default function App() {
     };
 
     loadPreference();
-  }, [isAppUnlocked]);
+  }, [isAppUnlocked, isAuthenticated]);
 
   const handleUnlock = async () => {
     setIsUnlocking(true);
@@ -190,6 +201,37 @@ export default function App() {
   const handleSelectPreference = async (selection: SpeakerPreference) => {
     setPreference(selection);
     await AsyncStorage.setItem(STORAGE_KEY, selection);
+  };
+
+  const handleLogin = async (username: string, password: string) => {
+    if (!username || !password) {
+      setAuthError("Enter both username and password.");
+      return;
+    }
+    setIsAuthSubmitting(true);
+    setAuthError(null);
+    try {
+      await login(username, password);
+      const response = await apiFetch("/health");
+      if (!response.ok) {
+        throw new Error("Health check failed");
+      }
+      setIsAuthenticated(true);
+    } catch (loginError) {
+      console.error("Login error:", loginError);
+      setAuthError("Login failed. Check credentials and try again.");
+      setIsAuthenticated(false);
+    } finally {
+      setIsAuthSubmitting(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    setMessages([]);
+    setPreference(null);
+    setIsLoadingPreference(true);
+    setIsAuthenticated(false);
   };
 
   const systemHint = useMemo(() => {
@@ -274,13 +316,13 @@ export default function App() {
 
     try {
       logApiBaseUrl("Chat request");
-      const response = await fetch(`${API_BASE_URL}/api/chat`, {
+      const response = await apiFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           speaker: preference, // "english" | "chinese"
           messages: conversation.map((m) => ({
-            role: m.role,       // "user" | "assistant"
+            role: m.role, // "user" | "assistant"
             content: m.text,
           })),
         }),
@@ -372,11 +414,10 @@ export default function App() {
     const maxAttempts = 10;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       logApiBaseUrl(`Audio poll attempt ${attempt}`);
-      const { response } = await fetchWithTimeout(
-        `${API_BASE_URL}/v1/speech/audio/${jobId}`,
+      const { response } = await apiFetchWithTimeout(
+        `/v1/speech/audio/${jobId}`,
         {
           method: "GET",
-          headers: { Accept: "application/json" },
         },
         30_000,
         0
@@ -473,17 +514,18 @@ export default function App() {
       formData.append("target_lang", "zh");
 
       logApiBaseUrl("Voice upload");
-      const { response, durationMs } = await fetchWithTimeout(
-        `${API_BASE_URL}/v1/speech/turn`,
+      const startedAt = Date.now();
+      const { response } = await apiFetchWithTimeout(
+        "/v1/speech/turn",
         {
           method: "POST",
-          headers: { Accept: "application/json" },
           body: formData,
         },
         90_000,
         1
       );
 
+      const durationMs = Date.now() - startedAt;
       const raw = await response.text();
       console.log("Voice request duration (ms):", durationMs);
       console.log("Voice Status:", response.status);
@@ -574,6 +616,28 @@ export default function App() {
     return <LockScreen onUnlock={handleUnlock} isSubmitting={isUnlocking} />;
   }
 
+  if (apiError) {
+    return <ApiBlockedScreen reason={apiError} />;
+  }
+
+  if (isBootstrapping) {
+    return (
+      <SafeAreaView style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#2F6FED" />
+      </SafeAreaView>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <AuthScreen
+        onSubmit={handleLogin}
+        isSubmitting={isAuthSubmitting}
+        error={authError}
+      />
+    );
+  }
+
   if (isLoadingPreference) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
@@ -597,7 +661,12 @@ export default function App() {
           <Text style={styles.title} onLongPress={handleLock}>
             Chinese Tutor
           </Text>
-          <Text style={styles.subtitle}>{systemHint}</Text>
+          <View style={styles.headerRow}>
+            <Text style={styles.subtitle}>{systemHint}</Text>
+            <TouchableOpacity onPress={handleLogout}>
+              <Text style={styles.logoutText}>Logout</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {error ? (
@@ -717,6 +786,17 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 12,
     color: "#7A7A7A",
+  },
+  headerRow: {
+    marginTop: 6,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  logoutText: {
+    fontSize: 12,
+    color: "#2563EB",
+    fontWeight: "600",
   },
   messagesContent: {
     paddingHorizontal: 20,

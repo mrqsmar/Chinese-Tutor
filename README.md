@@ -26,7 +26,29 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
+### Required environment variables
+
+- `GEMINI_API_KEY`
+- `ACCESS_TOKEN_SECRET`
+- `REFRESH_TOKEN_SECRET`
+- `AUTH_DEFAULT_USER`
+- `AUTH_DEFAULT_PASSWORD_HASH` (bcrypt hash)
+- `CORS_ALLOWED_ORIGINS` (comma-separated list of HTTPS origins for production)
+- `PUBLIC_BASE_URL` (e.g. `https://api.example.com`)
+
+### Auth
+
+First-party JWT auth is enabled by default. Access tokens expire in ~15 minutes and
+refresh tokens rotate on every refresh. The web client stores refresh tokens in
+HttpOnly cookies; mobile stores them in SecureStore.
+
 ### Endpoints
+
+`POST /auth/login`
+
+`POST /auth/refresh`
+
+`POST /auth/logout`
 
 `POST /chat`
 
@@ -59,7 +81,7 @@ Response body:
 `POST /v1/speech/turn` (multipart form-data)
 
 ```bash
-curl -X POST "http://localhost:8000/v1/speech/turn" \
+curl -X POST "https://api.example.com/v1/speech/turn" \
   -F "audio=@/path/to/audio.m4a" \
   -F "level=beginner" \
   -F "scenario=restaurant" \
@@ -70,7 +92,7 @@ curl -X POST "http://localhost:8000/v1/speech/turn" \
 Smoke test (prints JSON including any `tts_error` when audio is unavailable):
 
 ```bash
-curl -s -X POST "http://localhost:8000/v1/speech/turn" \
+curl -s -X POST "https://api.example.com/v1/speech/turn" \
   -F "audio=@/path/to/audio.m4a" \
   -F "level=beginner" \
   -F "scenario=restaurant" \
@@ -93,8 +115,7 @@ npm install
 npm run start
 ```
 
-> If you are testing on a physical device, set `EXPO_PUBLIC_API_URL` to your machine's LAN IP
-> (for example, `http://192.168.1.100:8000`).
+> Set `EXPO_PUBLIC_API_URL` to your deployed HTTPS API (no localhost/LAN).
 
 ## Notes
 
