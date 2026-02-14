@@ -130,17 +130,34 @@ if allowed_origins:
         allow_headers=["Authorization", "Content-Type", "Accept", "X-Client-Type"],
     )
 
+DOC_PATHS = {"/docs", "/openapi.json", "/redoc"}
 
 @app.middleware("http")
 async def security_headers(request: Request, call_next):
     _require_https(request)
+
     response = await call_next(request)
+
     response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["Referrer-Policy"] = "no-referrer"
     response.headers["Permissions-Policy"] = "geolocation=(), microphone=()"
-    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none';"
     response.headers["X-Frame-Options"] = "DENY"
+
+    if request.url.path in DOC_PATHS:
+        # allow Swagger UI assets + inline script/styles used by docs page
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self' https:; "
+            "img-src 'self' https: data:; "
+            "style-src 'self' https: 'unsafe-inline'; "
+            "script-src 'self' https: 'unsafe-inline'; "
+            "connect-src 'self' http: https: ws:; "
+            "frame-ancestors 'none';"
+        )
+    else:
+        # strict by default for your API responses
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none';"
+
     return response
 
 

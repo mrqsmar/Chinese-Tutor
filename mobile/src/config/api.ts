@@ -29,11 +29,12 @@ const parseUrl = (value: string) => {
 export const API_BASE_URL = envUrl;
 
 export const assertApiBaseUrl = () => {
+  const isDev = process.env.NODE_ENV !== "production";
+
   if (!envUrl) {
     return {
       ok: false as const,
-      reason:
-        "Missing API URL. Set EXPO_PUBLIC_API_URL to your deployed HTTPS API.",
+      reason: "Missing API URL. Set EXPO_PUBLIC_API_URL.",
     };
   }
 
@@ -45,22 +46,21 @@ export const assertApiBaseUrl = () => {
     };
   }
 
-  if (process.env.NODE_ENV === "production" && parsed.protocol !== "https:") {
+  // Only enforce HTTPS in production
+  if (!isDev && parsed.protocol !== "https:") {
     return {
       ok: false as const,
       reason: "Production builds require an HTTPS API URL.",
     };
   }
 
-  const isPhysicalDevice = Constants.isDevice ?? false;
-  if (isPrivateHostname(parsed.hostname)) {
-    if (Platform.OS === "web" || isPhysicalDevice || !isIosSimulator) {
-      return {
-        ok: false as const,
-        reason:
-          "Private/LAN API URLs are blocked. Use a deployed HTTPS endpoint.",
-      };
-    }
+  // Only block private/LAN URLs in production
+  if (!isDev && isPrivateHostname(parsed.hostname)) {
+    return {
+      ok: false as const,
+      reason:
+        "Private/LAN API URLs are blocked. Use a deployed HTTPS endpoint.",
+    };
   }
 
   return { ok: true as const, url: envUrl };
