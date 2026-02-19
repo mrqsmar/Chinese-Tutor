@@ -437,7 +437,7 @@ export default function App() {
         tts_error?: string | null;
       };
       if (data.status === "ready") {
-        const audioPayload = {
+        const audioPayload: SpeechTurnAudio = {
           format: data.audio_mime?.includes("mpeg") ? "mp3" : "wav",
           url: data.audio_url ?? undefined,
           base64: data.audio_base64 ?? undefined,
@@ -499,9 +499,10 @@ export default function App() {
       if (!uri) {
         throw new Error("Missing recording URI");
       }
-      const fileInfo = await FileSystem.getInfoAsync(uri, { size: true });
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      const fileSize = "size" in fileInfo ? fileInfo.size : undefined;
       console.log("Voice recording duration (ms):", status.durationMillis);
-      console.log("Voice recording file size (bytes):", fileInfo.size);
+      console.log("Voice recording file size (bytes):", fileSize);
       const formData = new FormData();
       formData.append("audio", {
         uri,
@@ -510,8 +511,10 @@ export default function App() {
       } as any);
       formData.append("level", "beginner");
       formData.append("scenario", "restaurant");
-      formData.append("source_lang", "en");
-      formData.append("target_lang", "zh");
+      const sourceLang = preference === "chinese" ? "zh" : "en";
+      const targetLang = preference === "chinese" ? "en" : "zh";
+      formData.append("source_lang", sourceLang);
+      formData.append("target_lang", targetLang);
 
       logApiBaseUrl("Voice upload");
       const startedAt = Date.now();
@@ -678,7 +681,7 @@ export default function App() {
         <View style={styles.voiceCard}>
           <Text style={styles.voiceTitle}>Voice Turn</Text>
           <Text style={styles.voiceSubtitle}>
-            Hold the button, speak English, release to translate.
+            Hold the button, speak, and release to translate + hear it back.
           </Text>
           {micPermission === "denied" ? (
             <Text style={styles.voiceError}>

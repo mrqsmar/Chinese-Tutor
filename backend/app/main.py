@@ -1,6 +1,8 @@
 from __future__ import annotations
 from dotenv import load_dotenv
 
+load_dotenv()
+
 from uuid import uuid4
 from datetime import datetime, timezone
 import asyncio
@@ -51,7 +53,6 @@ from app.services.speech_turn import (
     _build_response_parts,
 )
 
-load_dotenv()
 add_redaction_filter()
 
 app = FastAPI(title="Chinese Tutor API", version="0.1.0")
