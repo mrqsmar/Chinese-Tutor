@@ -221,6 +221,7 @@ class SpeechTurnService:
         tts_text: str,
         target_lang: str,
         base_url: str,
+        voice_name: str = "Kore",
     ) -> tuple[SpeechTurnAudio | None, str | None, str | None, float, str | None]:
         audio: SpeechTurnAudio | None = None
         audio_url: str | None = None
@@ -232,7 +233,11 @@ class SpeechTurnService:
 
         if tts_text:
             try:
-                pcm_bytes, tts_meta = await self._tts_client.synthesize(tts_text, target_lang)
+                pcm_bytes, tts_meta = await self._tts_client.synthesize(
+                    tts_text,
+                    target_lang,
+                    voice_name=voice_name,
+                )
                 if not pcm_bytes:
                     raise ValueError("TTS returned no audio bytes.")
 

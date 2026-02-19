@@ -40,6 +40,7 @@ const wait = (ms: number) =>
 
 type SpeakerPreference = "english" | "chinese";
 type MicPermissionState = "undetermined" | "granted" | "denied";
+type VoiceOption = "warm" | "bright" | "deep";
 
 type SpeechTurnAudio = {
   format: "mp3" | "wav";
@@ -116,6 +117,7 @@ export default function App() {
   const [isUploadingVoice, setIsUploadingVoice] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
+  const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -515,6 +517,7 @@ export default function App() {
       const targetLang = preference === "chinese" ? "en" : "zh";
       formData.append("source_lang", sourceLang);
       formData.append("target_lang", targetLang);
+      formData.append("voice", selectedVoice);
 
       logApiBaseUrl("Voice upload");
       const startedAt = Date.now();
@@ -574,6 +577,18 @@ export default function App() {
     } finally {
       setIsUploadingVoice(false);
     }
+  };
+
+
+  const handleMicPress = async () => {
+    if (isUploadingVoice) {
+      return;
+    }
+    if (isRecording) {
+      await stopRecording();
+      return;
+    }
+    await startRecording();
   };
 
   useEffect(() => {
@@ -691,6 +706,33 @@ export default function App() {
           {voiceError ? (
             <Text style={styles.voiceError}>{voiceError}</Text>
           ) : null}
+          <View style={styles.voiceOptionsRow}>
+            {[
+              { key: "warm", label: "Warm" },
+              { key: "bright", label: "Bright" },
+              { key: "deep", label: "Deep" },
+            ].map((option) => (
+              <TouchableOpacity
+                key={option.key}
+                style={[
+                  styles.voiceOptionPill,
+                  selectedVoice === option.key && styles.voiceOptionPillActive,
+                ]}
+                onPress={() => setSelectedVoice(option.key as VoiceOption)}
+                disabled={isRecording || isUploadingVoice}
+              >
+                <Text
+                  style={[
+                    styles.voiceOptionText,
+                    selectedVoice === option.key && styles.voiceOptionTextActive,
+                  ]}
+                >
+                  {option.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
           <TouchableOpacity
             style={[
               styles.voiceButton,
@@ -746,6 +788,18 @@ export default function App() {
             multiline
           />
           <TouchableOpacity
+            style={[
+              styles.micButton,
+              isRecording && styles.micButtonActive,
+              (isUploadingVoice || micPermission === "denied") &&
+                styles.micButtonDisabled,
+            ]}
+            onPress={handleMicPress}
+            disabled={isUploadingVoice || micPermission === "denied"}
+          >
+            <Text style={styles.micButtonText}>{isRecording ? "⏹" : "🎤"}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
             style={[styles.sendButton, isSending && styles.sendButtonDisabled]}
             onPress={sendMessage}
             disabled={isSending}
@@ -763,7 +817,7 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFF7ED",
   },
   keyboardAvoid: {
     flex: 1,
@@ -778,17 +832,17 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
+    borderBottomColor: "#F5D0A9",
   },
   title: {
     fontSize: 22,
     fontWeight: "700",
-    color: "#1F1F1F",
+    color: "#7C2D12",
   },
   subtitle: {
     marginTop: 6,
     fontSize: 12,
-    color: "#7A7A7A",
+    color: "#B45309",
   },
   headerRow: {
     marginTop: 6,
@@ -798,7 +852,7 @@ const styles = StyleSheet.create({
   },
   logoutText: {
     fontSize: 12,
-    color: "#2563EB",
+    color: "#B91C1C",
     fontWeight: "600",
   },
   messagesContent: {
@@ -812,11 +866,11 @@ const styles = StyleSheet.create({
     maxWidth: "85%",
   },
   userBubble: {
-    backgroundColor: "#2F6FED",
+    backgroundColor: "#B91C1C",
     alignSelf: "flex-end",
   },
   botBubble: {
-    backgroundColor: "#F6F6F6",
+    backgroundColor: "#FEF3C7",
     alignSelf: "flex-start",
   },
   userText: {
@@ -824,7 +878,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   botText: {
-    color: "#1F1F1F",
+    color: "#7C2D12",
     fontSize: 14,
   },
   typingRow: {
@@ -842,26 +896,45 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: "#F0F0F0",
+    borderTopColor: "#F5D0A9",
   },
   input: {
     flex: 1,
-    backgroundColor: "#F7F7F7",
+    backgroundColor: "#FFF1DC",
     borderRadius: 16,
     paddingHorizontal: 12,
     paddingVertical: 8,
     fontSize: 14,
     maxHeight: 120,
   },
+  micButton: {
+    marginLeft: 8,
+    backgroundColor: "#EA580C",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  micButtonActive: {
+    backgroundColor: "#7F1D1D",
+  },
+  micButtonDisabled: {
+    backgroundColor: "#D4A373",
+  },
+  micButtonText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+  },
   sendButton: {
     marginLeft: 10,
-    backgroundColor: "#2F6FED",
+    backgroundColor: "#B91C1C",
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: 16,
   },
   sendButtonDisabled: {
-    backgroundColor: "#9BB6F5",
+    backgroundColor: "#FCA5A5",
   },
   sendButtonText: {
     color: "#FFFFFF",
@@ -884,37 +957,62 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 16,
     borderRadius: 16,
-    backgroundColor: "#F8FAFC",
+    backgroundColor: "#FFEDD5",
     borderWidth: 1,
-    borderColor: "#E2E8F0",
+    borderColor: "#FDBA74",
   },
   voiceTitle: {
     fontSize: 16,
     fontWeight: "700",
-    color: "#111827",
+    color: "#9A3412",
   },
   voiceSubtitle: {
     marginTop: 6,
     fontSize: 12,
-    color: "#6B7280",
+    color: "#92400E",
   },
   voiceError: {
     marginTop: 8,
     fontSize: 12,
     color: "#B91C1C",
   },
+  voiceOptionsRow: {
+    marginTop: 12,
+    flexDirection: "row",
+    gap: 8,
+  },
+  voiceOptionPill: {
+    backgroundColor: "#FED7AA",
+    borderWidth: 1,
+    borderColor: "#FDBA74",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  voiceOptionPillActive: {
+    backgroundColor: "#C2410C",
+    borderColor: "#9A3412",
+  },
+  voiceOptionText: {
+    color: "#9A3412",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  voiceOptionTextActive: {
+    color: "#FFFFFF",
+  },
   voiceButton: {
     marginTop: 12,
     paddingVertical: 12,
     borderRadius: 18,
-    backgroundColor: "#2F6FED",
+    backgroundColor: "#B91C1C",
     alignItems: "center",
   },
   voiceButtonActive: {
-    backgroundColor: "#1D4ED8",
+    backgroundColor: "#991B1B",
   },
   voiceButtonDisabled: {
-    backgroundColor: "#94A3B8",
+    backgroundColor: "#D4A373",
   },
   voiceButtonText: {
     color: "#FFFFFF",
@@ -923,36 +1021,36 @@ const styles = StyleSheet.create({
   },
   voiceResult: {
     marginTop: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFF7ED",
     borderRadius: 12,
     padding: 12,
   },
   voiceLabel: {
     fontSize: 11,
     fontWeight: "600",
-    color: "#6B7280",
+    color: "#92400E",
     textTransform: "uppercase",
     marginTop: 8,
   },
   voiceValue: {
     marginTop: 4,
     fontSize: 14,
-    color: "#111827",
+    color: "#9A3412",
   },
   voiceAudioNote: {
     marginTop: 8,
     fontSize: 12,
-    color: "#6B7280",
+    color: "#92400E",
   },
   onboardingContainer: {
     flex: 1,
-    backgroundColor: "#F5F7FB",
+    backgroundColor: "#FFF7ED",
     justifyContent: "center",
     alignItems: "center",
     padding: 24,
   },
   onboardingCard: {
-    backgroundColor: "#FFFFFF",
+    backgroundColor: "#FFF7ED",
     borderRadius: 20,
     padding: 24,
     width: "100%",
@@ -966,7 +1064,7 @@ const styles = StyleSheet.create({
   onboardingTitle: {
     fontSize: 24,
     fontWeight: "700",
-    color: "#1F1F1F",
+    color: "#7C2D12",
   },
   onboardingSubtitle: {
     marginTop: 10,
@@ -977,14 +1075,14 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   onboardingButton: {
-    backgroundColor: "#2F6FED",
+    backgroundColor: "#B91C1C",
     paddingVertical: 12,
     borderRadius: 18,
     alignItems: "center",
     marginBottom: 12,
   },
   onboardingButtonSecondary: {
-    backgroundColor: "#111827",
+    backgroundColor: "#7C2D12",
   },
   onboardingButtonText: {
     color: "#FFFFFF",

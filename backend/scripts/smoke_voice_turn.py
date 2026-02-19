@@ -73,6 +73,7 @@ def main() -> int:
     parser.add_argument("--source-lang", default="en")
     parser.add_argument("--target-lang", default="zh")
     parser.add_argument("--scenario", default="restaurant")
+    parser.add_argument("--voice", default="warm", choices=["warm", "bright", "deep"])
     parser.add_argument("--timeout-seconds", type=int, default=40)
     args = parser.parse_args()
 
@@ -106,6 +107,7 @@ def main() -> int:
                 "scenario": args.scenario,
                 "source_lang": args.source_lang,
                 "target_lang": args.target_lang,
+                "voice": args.voice,
             },
             files={"audio": (audio_name, audio_bytes, audio_mime)},
         )
