@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 class SpeechTurnTextResult:
     normalized_request: str
     intent: Literal["translate_request", "unknown"]
+    target_text: str
+    romanization: str
     chinese: str
     pinyin: str
     notes: list[str]
@@ -48,6 +50,9 @@ class GeminiSpeechTurnTextClient:
         prompt = (
             "You are a Chinese tutor. "
             "Decide if the user is asking how to say something in the target language. "
+            "For translate_request, output the best natural translation in the target language. "
+            "Set target_text to the phrase to be spoken aloud. "
+            "Set romanization to pinyin for Chinese output, otherwise a pronunciation hint (or empty). "
             "Return JSON only."
             f" Source language: {source_lang}. Target language: {target_lang}. {scenario_hint} "
             f" Transcript: {transcript}"
@@ -58,11 +63,21 @@ class GeminiSpeechTurnTextClient:
             "properties": {
                 "normalized_request": {"type": "string"},
                 "intent": {"type": "string", "enum": ["translate_request", "unknown"]},
+                "target_text": {"type": "string"},
+                "romanization": {"type": "string"},
                 "chinese": {"type": "string"},
                 "pinyin": {"type": "string"},
                 "notes": {"type": "array", "items": {"type": "string"}},
             },
-            "required": ["normalized_request", "intent", "chinese", "pinyin", "notes"],
+            "required": [
+                "normalized_request",
+                "intent",
+                "target_text",
+                "romanization",
+                "chinese",
+                "pinyin",
+                "notes",
+            ],
         }
 
         payload = {
@@ -189,23 +204,14 @@ class SpeechTurnService:
 
         llm_start = time.perf_counter()
         if _looks_like_translate_request(transcript):
-            # skip the extra Gemini text call to avoid 429s
-            text_result = SpeechTurnTextResult(
-                normalized_request=transcript,
-                intent="translate_request",
-                chinese="",
-                pinyin="",
-                notes=["Heuristic: detected translation request."],
-            )
-            llm_ms = (time.perf_counter() - llm_start) * 1000
-        else:
-            text_result = await self._text_client.generate(
-                transcript=transcript,
-                source_lang=source_lang,
-                target_lang=target_lang,
-                scenario=scenario,
-            )
-            llm_ms = (time.perf_counter() - llm_start) * 1000
+            logger.info("Heuristic: detected translate request for transcript=%s", transcript)
+        text_result = await self._text_client.generate(
+            transcript=transcript,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            scenario=scenario,
+        )
+        llm_ms = (time.perf_counter() - llm_start) * 1000
 
         return transcript, text_result, stt_ms, llm_ms
 
@@ -215,6 +221,7 @@ class SpeechTurnService:
         tts_text: str,
         target_lang: str,
         base_url: str,
+        voice_name: str = "Kore",
     ) -> tuple[SpeechTurnAudio | None, str | None, str | None, float, str | None]:
         audio: SpeechTurnAudio | None = None
         audio_url: str | None = None
@@ -226,7 +233,11 @@ class SpeechTurnService:
 
         if tts_text:
             try:
-                pcm_bytes, tts_meta = await self._tts_client.synthesize(tts_text, target_lang)
+                pcm_bytes, tts_meta = await self._tts_client.synthesize(
+                    tts_text,
+                    target_lang,
+                    voice_name=voice_name,
+                )
                 if not pcm_bytes:
                     raise ValueError("TTS returned no audio bytes.")
 
@@ -294,8 +305,8 @@ def _build_response_parts(
     transcript: str,
     text_result: SpeechTurnTextResult,
 ) -> tuple[str, str, list[str], str]:
-    chinese = text_result.chinese or ""
-    pinyin = text_result.pinyin or ""
+    chinese = text_result.chinese or text_result.target_text or ""
+    pinyin = text_result.pinyin or text_result.romanization or ""
     notes = text_result.notes or []
 
     # If model says translate_request but it's missing chinese, fall back to speaking what we heard
@@ -305,7 +316,7 @@ def _build_response_parts(
         pinyin = ""
 
     # This will speak Chinese if present, otherwise a fallback.
-    tts_text = chinese or f"I heard: {transcript}"
+    tts_text = text_result.target_text or chinese or f"I heard: {transcript}"
     return chinese, pinyin, notes, tts_text
 
 
@@ -320,8 +331,10 @@ def _parse_text_result(content: str, transcript: str) -> SpeechTurnTextResult:
         if intent not in ("translate_request", "unknown"):
             intent = "unknown"
 
-        chinese = str(payload.get("chinese") or "")
-        pinyin = str(payload.get("pinyin") or "")
+        target_text = str(payload.get("target_text") or payload.get("chinese") or "")
+        romanization = str(payload.get("romanization") or payload.get("pinyin") or "")
+        chinese = str(payload.get("chinese") or target_text)
+        pinyin = str(payload.get("pinyin") or romanization)
 
         if intent == "unknown":
             chinese, pinyin = "", ""
@@ -331,6 +344,8 @@ def _parse_text_result(content: str, transcript: str) -> SpeechTurnTextResult:
                 payload.get("normalized_request") or f"How do I say: '{transcript}'?"
             ),
             intent=intent,  # type: ignore[assignment]
+            target_text=target_text,
+            romanization=romanization,
             chinese=chinese,
             pinyin=pinyin,
             notes=_normalize_notes(payload.get("notes")),
@@ -339,6 +354,8 @@ def _parse_text_result(content: str, transcript: str) -> SpeechTurnTextResult:
         return SpeechTurnTextResult(
             normalized_request=f"How do I say: '{transcript}'?",
             intent="unknown",
+            target_text="",
+            romanization="",
             chinese="",
             pinyin="",
             notes=["Unable to parse Gemini response."],

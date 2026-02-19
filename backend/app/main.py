@@ -1,6 +1,8 @@
 from __future__ import annotations
 from dotenv import load_dotenv
 
+load_dotenv()
+
 from uuid import uuid4
 from datetime import datetime, timezone
 import asyncio
@@ -51,7 +53,6 @@ from app.services.speech_turn import (
     _build_response_parts,
 )
 
-load_dotenv()
 add_redaction_filter()
 
 app = FastAPI(title="Chinese Tutor API", version="0.1.0")
@@ -67,6 +68,16 @@ ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 IS_PRODUCTION = ENVIRONMENT == "production"
 
 COOKIE_NAME = "refresh_token"
+
+VOICE_NAME_MAP = {
+    "warm": "Kore",
+    "bright": "Leda",
+    "deep": "Puck",
+}
+
+
+def _resolve_voice_name(voice: str) -> str:
+    return VOICE_NAME_MAP.get((voice or "warm").lower(), "Kore")
 
 
 class RateLimiter:
@@ -550,6 +561,7 @@ async def _speech_turn_handler(
     scenario: str,
     source_lang: str,
     target_lang: str,
+    voice: str,
     service: SpeechTurnService,
     auth: AuthContext,
 ) -> SpeechTurnResponse:
@@ -572,6 +584,7 @@ async def _speech_turn_handler(
         len(audio_bytes),
     )
     base_url = os.getenv("PUBLIC_BASE_URL") or str(request.base_url)
+    voice_name = _resolve_voice_name(voice)
 
     transcript, text_result, stt_ms, llm_ms = await service.run_stt_and_llm(
         audio_bytes=audio_bytes,
@@ -606,6 +619,7 @@ async def _speech_turn_handler(
                 tts_text=tts_text,
                 target_lang=target_lang,
                 base_url=base_url,
+                voice_name=voice_name,
             )
             AUDIO_JOBS[job_id] = {
                 "status": "ready" if audio_url else "error",
@@ -650,6 +664,7 @@ async def _speech_turn_handler(
         tts_text=tts_text,
         target_lang=target_lang,
         base_url=base_url,
+        voice_name=voice_name,
     )
     total_ms = (time.perf_counter() - request_start) * 1000
     logger.info(
@@ -689,6 +704,7 @@ async def speech_turn(
     scenario: str = Form("restaurant"),
     source_lang: str = Form("en"),
     target_lang: str = Form("zh"),
+    voice: str = Form("warm"),
     service: SpeechTurnService = Depends(get_speech_turn_service),
     auth: AuthContext = Depends(require_scopes("speech:write")),
 ) -> SpeechTurnResponse:
@@ -700,6 +716,7 @@ async def speech_turn(
         scenario=scenario,
         source_lang=source_lang,
         target_lang=target_lang,
+        voice=voice,
         service=service,
         auth=auth,
     )
@@ -713,6 +730,7 @@ async def speech_turn_alias(
     scenario: str = Form("restaurant"),
     source_lang: str = Form("en"),
     target_lang: str = Form("zh"),
+    voice: str = Form("warm"),
     service: SpeechTurnService = Depends(get_speech_turn_service),
     auth: AuthContext = Depends(require_scopes("speech:write")),
 ) -> SpeechTurnResponse:
@@ -724,6 +742,7 @@ async def speech_turn_alias(
         scenario=scenario,
         source_lang=source_lang,
         target_lang=target_lang,
+        voice=voice,
         service=service,
         auth=auth,
     )

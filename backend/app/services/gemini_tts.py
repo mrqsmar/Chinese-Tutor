@@ -26,7 +26,12 @@ class GeminiTTSClient:
         m = re.search(r"rate=(\d+)", mime_type)
         return int(m.group(1)) if m else 24000
 
-    async def synthesize(self, text: str, target_lang: str) -> tuple[bytes, dict[str, Any]]:
+    async def synthesize(
+        self,
+        text: str,
+        target_lang: str,
+        voice_name: str = "Kore",
+    ) -> tuple[bytes, dict[str, Any]]:
         # Match the official REST example shape closely:
         # - contents -> [{ parts: [{ text: ... }] }]
         # - generationConfig -> responseModalities + speechConfig
@@ -47,7 +52,7 @@ class GeminiTTSClient:
                 "responseModalities": ["AUDIO"],
                 "speechConfig": {
                     "voiceConfig": {
-                        "prebuiltVoiceConfig": {"voiceName": "Kore"}
+                        "prebuiltVoiceConfig": {"voiceName": voice_name}
                     }
                 },
             },
