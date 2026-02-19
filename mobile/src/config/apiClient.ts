@@ -5,7 +5,7 @@ import { getAccessToken, refreshSession } from "./auth";
 
 const CLIENT_TYPE = Platform.OS === "web" ? "web" : "mobile";
 
-const buildHeaders = (headers?: HeadersInit) => {
+const buildHeaders = (headers?: HeadersInit): HeadersInit => {
   const token = getAccessToken();
   return {
     ...(headers ?? {}),
@@ -21,7 +21,7 @@ export const apiFetch = async (
   path: string,
   options: RequestInit = {},
   retry = true
-) => {
+): Promise<Response> => {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers: buildHeaders(options.headers),
