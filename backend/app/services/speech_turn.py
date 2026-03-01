@@ -235,6 +235,14 @@ class SpeechTurnService:
             voice_candidates = [voice_name]
             if voice_name != "Kore":
                 voice_candidates.append("Kore")
+            try:
+                pcm_bytes, tts_meta = await self._tts_client.synthesize(
+                    tts_text,
+                    target_lang,
+                    voice_name=voice_name,
+                )
+                if not pcm_bytes:
+                    raise ValueError("TTS returned no audio bytes.")
 
             last_error: str | None = None
             for candidate_voice in voice_candidates:

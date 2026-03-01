@@ -40,6 +40,7 @@ class FakeSpeechTurnService:
     async def synthesize_audio(
         self, *, tts_text: str, target_lang: str, base_url: str, voice_name: str = "Kore"
     ):
+    async def synthesize_audio(self, *, tts_text: str, target_lang: str, base_url: str):
         return (
             SpeechTurnAudio(format="mp3", url=f"{base_url}static/audio/mock.mp3"),
             f"{base_url}static/audio/mock.mp3",

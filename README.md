@@ -110,6 +110,15 @@ SMOKE_AUTH_USER=<username> SMOKE_AUTH_PASSWORD=<password> \
 python scripts/smoke_voice_turn.py --base-url https://api.example.com --voice warm
 ```
 
+Scripted end-to-end smoke test (login + speech turn + optional async audio polling):
+
+```bash
+cd backend
+SMOKE_AUTH_USER=<username> SMOKE_AUTH_PASSWORD=<password> \
+python scripts/smoke_voice_turn.py --base-url https://api.example.com --voice warm
+python scripts/smoke_voice_turn.py --base-url https://api.example.com
+```
+
 ## Mobile (Expo React Native)
 
 ### Setup
