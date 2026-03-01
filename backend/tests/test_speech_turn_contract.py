@@ -1,14 +1,27 @@
 import io
 import wave
 
+import os
+
 from fastapi.testclient import TestClient
 
 from app.main import app, get_speech_turn_service
+from app.security import issue_tokens
 from app.models.speech_turn import SpeechTurnAnalysis, SpeechTurnAudio, SpeechTurnResponse
 
 
+class FakeTextResult:
+    normalized_request = "How do I say: 'Can I get char siu?'"
+    intent = "translate_request"
+    chinese = "我可以来一份叉烧吗？"
+    pinyin = "Wǒ kěyǐ lái yí fèn chāshāo ma?"
+    notes = ["Mocked response"]
+    target_text = "我可以来一份叉烧吗？"
+    romanization = "Wǒ kěyǐ lái yí fèn chāshāo ma?"
+
+
 class FakeSpeechTurnService:
-    async def process(
+    async def run_stt_and_llm(
         self,
         *,
         audio_bytes: bytes,
@@ -16,23 +29,32 @@ class FakeSpeechTurnService:
         source_lang: str,
         target_lang: str,
         scenario: str | None,
-        base_url: str,
-    ) -> SpeechTurnResponse:
-        return SpeechTurnResponse(
-            source_lang=source_lang,
-            target_lang=target_lang,
-            scenario=scenario,
-            transcript="I am at a restaurant right now how do I say can I get cha siu",
-            normalized_request="How do I say: 'Can I get char siu?'",
-            intent="translate_request",
-            chinese="我现在在餐厅，怎么说‘我可以来一份叉烧吗？’",
-            pinyin="Wǒ xiànzài zài cāntīng, zěnme shuō ‘wǒ kěyǐ lái yí fèn chāshāo ma?’",
-            notes=["Mocked response"],
-            audio=SpeechTurnAudio(format="mp3", url=f"{base_url}static/audio/mock.mp3"),
-            analysis=SpeechTurnAnalysis(overall_score=None, phoneme_confidence=[]),
+    ):
+        return (
+            "How do I say can I get char siu",
+            FakeTextResult(),
+            10.0,
+            20.0,
+        )
+
+    async def synthesize_audio(
+        self, *, tts_text: str, target_lang: str, base_url: str, voice_name: str = "Kore"
+    ):
+        return (
+            SpeechTurnAudio(format="mp3", url=f"{base_url}static/audio/mock.mp3"),
+            f"{base_url}static/audio/mock.mp3",
+            "audio/mpeg",
+            15.0,
+            None,
         )
 
 
+
+def _auth_headers() -> dict[str, str]:
+    os.environ["ACCESS_TOKEN_SECRET"] = "test-access-secret"
+    os.environ["REFRESH_TOKEN_SECRET"] = "test-refresh-secret"
+    tokens = issue_tokens("test-user", roles=["user"], scopes=["speech:write"])
+    return {"Authorization": f"Bearer {tokens['access_token']}"}
 def build_silence_wav() -> bytes:
     buffer = io.BytesIO()
     with wave.open(buffer, "wb") as handle:
@@ -49,6 +71,7 @@ def test_speech_turn_contract():
     response = client.post(
         "/v1/speech/turn",
         data={"scenario": "restaurant"},
+        headers=_auth_headers(),
         files={"audio": ("sample.wav", build_silence_wav(), "audio/wav")},
     )
 
