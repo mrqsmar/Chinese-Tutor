@@ -232,6 +232,9 @@ class SpeechTurnService:
         tts_text = (tts_text or "").strip()
 
         if tts_text:
+            voice_candidates = [voice_name]
+            if voice_name != "Kore":
+                voice_candidates.append("Kore")
             try:
                 pcm_bytes, tts_meta = await self._tts_client.synthesize(
                     tts_text,
@@ -241,33 +244,62 @@ class SpeechTurnService:
                 if not pcm_bytes:
                     raise ValueError("TTS returned no audio bytes.")
 
-                # Gemini TTS returns raw PCM; write a proper WAV file (24kHz mono 16-bit by default)
-                sample_rate = int(tts_meta.get("sample_rate_hz", 24000))
-                channels = int(tts_meta.get("channels", 1))
-                sampwidth = int(tts_meta.get("sample_width_bytes", 2))
+            last_error: str | None = None
+            for candidate_voice in voice_candidates:
+                try:
+                    pcm_bytes, tts_meta = await self._tts_client.synthesize(
+                        tts_text,
+                        target_lang,
+                        voice_name=candidate_voice,
+                    )
+                    if not pcm_bytes:
+                        raise ValueError("TTS returned no audio bytes.")
 
-                filename = f"{uuid4().hex}.wav"
-                file_path = os.path.join(self._audio_dir, filename)
+                    # Gemini TTS returns raw PCM; write a proper WAV file (24kHz mono 16-bit by default)
+                    sample_rate = int(tts_meta.get("sample_rate_hz", 24000))
+                    channels = int(tts_meta.get("channels", 1))
+                    sampwidth = int(tts_meta.get("sample_width_bytes", 2))
 
-                with wave.open(file_path, "wb") as wf:
-                    wf.setnchannels(channels)
-                    wf.setsampwidth(sampwidth)
-                    wf.setframerate(sample_rate)
-                    wf.writeframes(pcm_bytes)
+                    filename = f"{uuid4().hex}.wav"
+                    file_path = os.path.join(self._audio_dir, filename)
 
-                self._cleanup_old_files()
+                    with wave.open(file_path, "wb") as wf:
+                        wf.setnchannels(channels)
+                        wf.setsampwidth(sampwidth)
+                        wf.setframerate(sample_rate)
+                        wf.writeframes(pcm_bytes)
 
-                audio_token = create_audio_token(filename)
-                audio_url = (
-                    f"{base_url.rstrip('/')}/static/audio/{filename}?token={audio_token}"
-                )
-                audio_mime = "audio/wav"
-                audio = SpeechTurnAudio(format="wav", url=audio_url)
+                    self._cleanup_old_files()
 
-                logger.info("TTS audio file saved: %s", file_path)
+                    audio_token = create_audio_token(filename)
+                    audio_url = (
+                        f"{base_url.rstrip('/')}/static/audio/{filename}?token={audio_token}"
+                    )
+                    audio_mime = "audio/wav"
+                    audio = SpeechTurnAudio(format="wav", url=audio_url)
 
-            except Exception as exc:  # noqa: BLE001
-                tts_error = f"{type(exc).__name__}: {exc}"
+                    logger.info("TTS audio file saved: %s (voice=%s)", file_path, candidate_voice)
+                    if candidate_voice != voice_name:
+                        logger.warning(
+                            "TTS fallback voice used. requested=%s fallback=%s",
+                            voice_name,
+                            candidate_voice,
+                        )
+                    last_error = None
+                    break
+
+                except Exception as exc:  # noqa: BLE001
+                    last_error = f"{type(exc).__name__}: {exc}"
+                    logger.warning(
+                        "TTS synth failed for voice=%s target_lang=%s error=%s",
+                        candidate_voice,
+                        target_lang,
+                        last_error,
+                    )
+                    continue
+
+            if last_error:
+                tts_error = last_error
 
         tts_ms = (time.perf_counter() - tts_start) * 1000
         return audio, audio_url, audio_mime, tts_ms, tts_error

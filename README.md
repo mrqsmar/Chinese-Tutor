@@ -86,7 +86,8 @@ curl -X POST "https://api.example.com/v1/speech/turn" \
   -F "level=beginner" \
   -F "scenario=restaurant" \
   -F "source_lang=en" \
-  -F "target_lang=zh"
+  -F "target_lang=zh" \
+  -F "voice=warm"
 ```
 
 Smoke test (prints JSON including any `tts_error` when audio is unavailable):
@@ -97,7 +98,16 @@ curl -s -X POST "https://api.example.com/v1/speech/turn" \
   -F "level=beginner" \
   -F "scenario=restaurant" \
   -F "source_lang=en" \
-  -F "target_lang=zh" | jq
+  -F "target_lang=zh" \
+  -F "voice=warm" | jq
+```
+
+Scripted end-to-end smoke test (login + speech turn + optional async audio polling):
+
+```bash
+cd backend
+SMOKE_AUTH_USER=<username> SMOKE_AUTH_PASSWORD=<password> \
+python scripts/smoke_voice_turn.py --base-url https://api.example.com --voice warm
 ```
 
 Scripted end-to-end smoke test (login + speech turn + optional async audio polling):
