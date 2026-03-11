@@ -31,6 +31,11 @@ import { login, logout, refreshSession } from "./src/config/auth";
 const STORAGE_KEY = "speakerPreference";
 const TYPING_INTERVAL_MS = 18;
 
+const isTruthy = (value: string | undefined) =>
+  ["1", "true", "yes", "on"].includes((value ?? "").toLowerCase());
+
+const DEMO_MODE = isTruthy(process.env.EXPO_PUBLIC_DEMO_MODE);
+
 const createId = () => Math.random().toString(36).slice(2, 10);
 
 const wait = (ms: number) =>
@@ -125,6 +130,11 @@ export default function App() {
   useEffect(() => {
     logApiBaseUrl("App start");
     const loadAppLock = async () => {
+      if (DEMO_MODE) {
+        setIsAppUnlocked(true);
+        setIsLoadingAppLock(false);
+        return;
+      }
       const unlocked = await hasValidUnlock();
       setIsAppUnlocked(unlocked);
       setIsLoadingAppLock(false);
@@ -145,6 +155,11 @@ export default function App() {
         return;
       }
       setApiError(null);
+      if (DEMO_MODE) {
+        setIsAuthenticated(true);
+        setIsBootstrapping(false);
+        return;
+      }
       try {
         const refreshed = await refreshSession();
         if (refreshed) {
@@ -186,6 +201,10 @@ export default function App() {
   }, [isAppUnlocked, isAuthenticated]);
 
   const handleUnlock = async () => {
+    if (DEMO_MODE) {
+      setIsAppUnlocked(true);
+      return;
+    }
     setIsUnlocking(true);
     try {
       await persistUnlock();
@@ -196,6 +215,9 @@ export default function App() {
   };
 
   const handleLock = async () => {
+    if (DEMO_MODE) {
+      return;
+    }
     await clearUnlock();
     setIsAppUnlocked(false);
   };
@@ -646,7 +668,7 @@ export default function App() {
     );
   }
 
-  if (!isAuthenticated) {
+  if (!DEMO_MODE && !isAuthenticated) {
     return (
       <AuthScreen
         onSubmit={handleLogin}
@@ -681,9 +703,11 @@ export default function App() {
           </Text>
           <View style={styles.headerRow}>
             <Text style={styles.subtitle}>{systemHint}</Text>
-            <TouchableOpacity onPress={handleLogout}>
-              <Text style={styles.logoutText}>Logout</Text>
-            </TouchableOpacity>
+            {DEMO_MODE ? null : (
+              <TouchableOpacity onPress={handleLogout}>
+                <Text style={styles.logoutText}>Logout</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
