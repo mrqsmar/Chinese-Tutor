@@ -35,12 +35,17 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 - `AUTH_DEFAULT_PASSWORD_HASH` (bcrypt hash)
 - `CORS_ALLOWED_ORIGINS` (comma-separated list of HTTPS origins for production)
 - `PUBLIC_BASE_URL` (e.g. `https://api.example.com`)
+- `DEMO_DISABLE_AUTH` (optional, set to `true` only for demos to bypass JWT checks)
 
 ### Auth
 
 First-party JWT auth is enabled by default. Access tokens expire in ~15 minutes and
 refresh tokens rotate on every refresh. The web client stores refresh tokens in
 HttpOnly cookies; mobile stores them in SecureStore.
+
+For demo-only flows, you can temporarily set `DEMO_DISABLE_AUTH=true` on the backend and
+`EXPO_PUBLIC_DEMO_MODE=true` on the mobile app to bypass lock/login screens and open
+directly to the chatbot UI.
 
 ### Endpoints
 
@@ -135,6 +140,7 @@ npm run start
 ```
 
 > Set `EXPO_PUBLIC_API_URL` to your deployed HTTPS API (no localhost/LAN).
+> Set `EXPO_PUBLIC_DEMO_MODE=true` only when you need a login-free demo build.
 
 ## Notes
 

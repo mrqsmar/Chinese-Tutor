@@ -33,6 +33,11 @@ ADMIN_USERS = {u.strip() for u in os.getenv("ADMIN_USERS", "").split(",") if u.s
 REFRESH_TOKEN_STORE: dict[str, dict[str, Any]] = {}
 
 
+def _demo_auth_disabled() -> bool:
+    value = os.getenv("DEMO_DISABLE_AUTH", "")
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _access_token_secret() -> str:
     return os.getenv("ACCESS_TOKEN_SECRET", ACCESS_TOKEN_SECRET)
 
@@ -187,6 +192,12 @@ def revoke_refresh_token(refresh_token: str) -> None:
 def get_auth_context(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> AuthContext:
+    if _demo_auth_disabled():
+        return AuthContext(
+            user_id=os.getenv("DEMO_AUTH_USER", "demo-user"),
+            roles=["admin", "user"],
+            scopes=["chat:write", "speech:write"],
+        )
     _require_secrets()
     if not credentials or credentials.scheme.lower() != "bearer":
         raise AuthError("Missing access token.")
