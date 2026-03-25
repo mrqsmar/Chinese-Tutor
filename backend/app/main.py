@@ -549,19 +549,37 @@ async def _generate_chat_reply(
     client: httpx.AsyncClient, api_key: str, payload: dict
 ) -> str:
     endpoint_path = "/v1beta/models/gemini-2.5-flash:generateContent"
-    logger.info("Calling Gemini endpoint: %s", endpoint_path)
-    logger.info("Gemini payload preview: %s", str(payload)[:300])
-    response = await client.post(
-        f"https://generativelanguage.googleapis.com{endpoint_path}",
-        headers={
-            "Content-Type": "application/json",
-        },
-        params={"key": api_key},
-        json=payload,
-    )
-    logger.info("Gemini response status_code=%s", response.status_code)
-    logger.info("Gemini raw response preview: %s", response.text[:500])
-    response.raise_for_status()
+    backoff_seconds = [2, 4, 6]
+    response: httpx.Response | None = None
+    for attempt in range(len(backoff_seconds) + 1):
+        logger.info("Calling Gemini endpoint: %s", endpoint_path)
+        logger.info("Gemini payload preview: %s", str(payload)[:300])
+        response = await client.post(
+            f"https://generativelanguage.googleapis.com{endpoint_path}",
+            headers={
+                "Content-Type": "application/json",
+            },
+            params={"key": api_key},
+            json=payload,
+        )
+        logger.info("Gemini response status_code=%s", response.status_code)
+        logger.info("Gemini raw response preview: %s", response.text[:500])
+        if response.status_code == 429 and attempt < len(backoff_seconds):
+            wait_seconds = backoff_seconds[attempt]
+            logger.warning(
+                "Gemini returned 429 (attempt %s/%s); retrying in %ss",
+                attempt + 1,
+                len(backoff_seconds) + 1,
+                wait_seconds,
+            )
+            await asyncio.sleep(wait_seconds)
+            continue
+        response.raise_for_status()
+        break
+
+    if response is None:
+        raise HTTPException(status_code=502, detail="Gemini returned no response.")
+
     data = response.json()
     content = (
         data.get("candidates", [{}])[0]
@@ -681,13 +699,18 @@ async def llm_chat(
                 )
     except httpx.HTTPStatusError as exc:
         body_preview = exc.response.text[:1000] if exc.response is not None else ""
-        status_code = exc.response.status_code if exc.response is not None else "unknown"
+        status_code = exc.response.status_code if exc.response is not None else 502
         logger.error(
             "Gemini HTTP status error: status_code=%s response_body=%s",
             status_code,
             body_preview,
         )
-        raise HTTPException(status_code=502, detail=f"Gemini error: {status_code}: {body_preview}")
+        if status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="Gemini rate limit exceeded. Please wait a few seconds and try again.",
+            )
+        raise HTTPException(status_code=status_code, detail=f"Gemini error: {status_code}: {body_preview}")
     except httpx.RequestError as exc:
         logger.error("Gemini request/network error: %s", exc)
         raise HTTPException(status_code=502, detail=f"Gemini request error: {exc}")
