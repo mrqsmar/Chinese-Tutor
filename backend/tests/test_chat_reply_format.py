@@ -28,3 +28,4 @@ def test_normalize_structured_reply_converts_english_label_to_meaning() -> None:
     normalized = _normalize_structured_reply(text)
     assert "Meaning: hello" in normalized
     assert "English:" not in normalized
+    assert "Notes: 你好，老师。" in normalized

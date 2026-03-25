@@ -464,11 +464,13 @@ def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
         "Always include the actual learning output, never vague placeholders. "
         "Never reply with only meta teaching text (e.g., 'Here is how to say it') without the answer itself. "
         "Use Simplified Chinese only. "
+        "If the user provides an English phrase or sentence, treat it as a direct translation request and translate it immediately. "
+        "Do NOT ask the user to provide an English sentence if one is already present. "
         "For beginner tutoring, output this exact labeled format on separate lines: "
         "Chinese: <hanzi output> "
         "Pinyin: <tone-marked pinyin> "
         "Meaning: <plain English meaning/translation> "
-        "Example (optional): <one short beginner example>. "
+        "Notes (optional): <one short usage tip or context note, only if helpful>. "
         "Do NOT include character breakdowns. "
         "Do NOT include multiple examples or long explanations unless the user asks for more detail. "
         "Provide only one example or tip at a time; do not give multiple examples or tips. "
@@ -530,15 +532,15 @@ def _normalize_structured_reply(text: str) -> str:
     chinese = _extract_labeled_value(text, "chinese")
     pinyin = _extract_labeled_value(text, "pinyin")
     meaning = _extract_labeled_value(text, "meaning|english|translation")
-    example = _extract_labeled_value(text, "example")
+    notes = _extract_labeled_value(text, "notes|note|example")
 
     lines = [
         f"Chinese: {chinese}",
         f"Pinyin: {pinyin}",
         f"Meaning: {meaning}",
     ]
-    if example:
-        lines.append(f"Example: {example}")
+    if notes:
+        lines.append(f"Notes: {notes}")
     return "\n".join(lines)
 
 
@@ -610,6 +612,12 @@ async def llm_chat(
         (message.content for message in reversed(request.messages) if message.role == "user"),
         "",
     )
+    logger.info(
+        "LLM chat request received: speaker=%s messages=%s last_user_message=%r",
+        request.speaker,
+        len(request.messages),
+        last_user_message,
+    )
 
     async with httpx.AsyncClient(timeout=30.0) as client:
         content = await _generate_chat_reply(client=client, api_key=api_key, payload=payload)
@@ -625,7 +633,12 @@ async def llm_chat(
                                 "Chinese: ...\n"
                                 "Pinyin: ...\n"
                                 "Meaning: ...\n"
-                                "Example: ... (optional)\n"
+                                "Notes: ... (optional)\n"
+                                "If user input is an English sentence (for example: "
+                                "'Can I have 3 orders of siu mai?', "
+                                "'I'd like 2 waters', "
+                                "'Where is the bathroom?'), directly translate it into Chinese. "
+                                "Do not ask the user to provide an English sentence. "
                                 "Rules: include concrete Simplified Chinese answer, tone-marked pinyin, and plain English meaning. "
                                 "No vague text."
                             )
@@ -651,9 +664,9 @@ async def llm_chat(
                 client=client, api_key=api_key, payload=repair_payload
             )
             content = repaired if _is_structured_beginner_reply(repaired) else (
-                "Chinese: 请告诉我你想表达的英文句子。\n"
-                "Pinyin: Qǐng gàosu wǒ nǐ xiǎng biǎodá de Yīngwén jùzi.\n"
-                "Meaning: Please tell me the English sentence you want to say."
+                "Chinese: 抱歉，我刚才格式化失败了。请再试一次，我会直接帮你翻译这句英文。\n"
+                "Pinyin: Bàoqiàn, wǒ gāngcái géshìhuà shībài le. Qǐng zài shì yí cì, wǒ huì zhíjiē bāng nǐ fānyì zhè jù Yīngwén.\n"
+                "Meaning: Sorry, formatting failed just now. Please try once more and I will translate your English sentence directly."
             )
 
     return LLMChatResponse(reply=_normalize_structured_reply(content))
