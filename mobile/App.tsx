@@ -71,6 +71,21 @@ type ModeTheme = {
   headerAccentLine: string;
   surfaceTint: string;
   surfaceBorder: string;
+  titleText: string;
+  subtitleText: string;
+  voiceLabelText: string;
+  voiceSupportText: string;
+  composerBackground: string;
+  composerBorder: string;
+  inputText: string;
+  inputPlaceholder: string;
+  sendButtonBackground: string;
+  sendButtonBorder: string;
+  sendButtonText: string;
+  userMessageBackground: string;
+  userMessageBorder: string;
+  userMessageText: string;
+  messageAccentText: string;
 };
 
 type SpeechTurnAudio = {
@@ -175,7 +190,13 @@ const EmptyChatState = () => (
   </View>
 );
 
-const MessageBubble = ({ item }: { item: ChatMessage }) => {
+const MessageBubble = ({
+  item,
+  theme,
+}: {
+  item: ChatMessage;
+  theme: ModeTheme;
+}) => {
   const entrance = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -192,6 +213,12 @@ const MessageBubble = ({ item }: { item: ChatMessage }) => {
       style={[
         styles.messageBubble,
         item.role === "user" ? styles.userBubble : styles.botBubble,
+        item.role === "user"
+          ? {
+              backgroundColor: theme.userMessageBackground,
+              borderColor: theme.userMessageBorder,
+            }
+          : null,
         {
           opacity: entrance,
           transform: [
@@ -210,7 +237,14 @@ const MessageBubble = ({ item }: { item: ChatMessage }) => {
       ) : item.role === "assistant" ? (
         <StructuredLearningCard {...parseLearningCard(item.text)} />
       ) : (
-        <Text style={item.role === "user" ? styles.userText : styles.botText}>
+        <Text
+          style={[
+            item.role === "user" ? styles.userText : styles.botText,
+            item.role === "user"
+              ? { color: theme.userMessageText }
+              : { color: theme.messageAccentText },
+          ]}
+        >
           {item.text}
         </Text>
       )}
@@ -268,6 +302,21 @@ const MODE_THEMES: Record<VoiceOption, ModeTheme> = {
     headerAccentLine: "rgba(234, 88, 12, 0.45)",
     surfaceTint: "#FFEDD5",
     surfaceBorder: "#FDBA74",
+    titleText: "#6B2C12",
+    subtitleText: "#9A5A2B",
+    voiceLabelText: "#9A3412",
+    voiceSupportText: "#92400E",
+    composerBackground: "#FFFDF9",
+    composerBorder: "#E7DAC8",
+    inputText: "#4A2F1A",
+    inputPlaceholder: "#A48768",
+    sendButtonBackground: "#8F5A33",
+    sendButtonBorder: "#7B4925",
+    sendButtonText: "#FFFFFF",
+    userMessageBackground: "#FFF7ED",
+    userMessageBorder: "#FCD9B1",
+    userMessageText: "#7C2D12",
+    messageAccentText: "#B45309",
   },
   bright: {
     gradientTop: "#F7FCFF",
@@ -280,6 +329,21 @@ const MODE_THEMES: Record<VoiceOption, ModeTheme> = {
     headerAccentLine: "rgba(2, 132, 199, 0.42)",
     surfaceTint: "#ECFEFF",
     surfaceBorder: "#A5F3FC",
+    titleText: "#0F3A56",
+    subtitleText: "#356281",
+    voiceLabelText: "#0C4A6E",
+    voiceSupportText: "#1E5B7D",
+    composerBackground: "#F8FCFF",
+    composerBorder: "#BFDBFE",
+    inputText: "#12344A",
+    inputPlaceholder: "#6892AC",
+    sendButtonBackground: "#0369A1",
+    sendButtonBorder: "#075985",
+    sendButtonText: "#FFFFFF",
+    userMessageBackground: "#EAF7FF",
+    userMessageBorder: "#BAE6FD",
+    userMessageText: "#0C4A6E",
+    messageAccentText: "#0284C7",
   },
   deep: {
     gradientTop: "#F5F0FF",
@@ -292,6 +356,21 @@ const MODE_THEMES: Record<VoiceOption, ModeTheme> = {
     headerAccentLine: "rgba(67, 56, 202, 0.44)",
     surfaceTint: "#EFE7FF",
     surfaceBorder: "#C4B5FD",
+    titleText: "#3F255E",
+    subtitleText: "#5B4B84",
+    voiceLabelText: "#4C1D95",
+    voiceSupportText: "#5B4B84",
+    composerBackground: "#F6F3FF",
+    composerBorder: "#C4B5FD",
+    inputText: "#34224E",
+    inputPlaceholder: "#8672A8",
+    sendButtonBackground: "#5B21B6",
+    sendButtonBorder: "#4C1D95",
+    sendButtonText: "#FFFFFF",
+    userMessageBackground: "#F3EEFF",
+    userMessageBorder: "#D8CCFF",
+    userMessageText: "#4C1D95",
+    messageAccentText: "#6D28D9",
   },
 };
 
@@ -553,8 +632,24 @@ export default function App() {
       headerAccentLine: interpolateColor("headerAccentLine"),
       surfaceTint: interpolateColor("surfaceTint"),
       surfaceBorder: interpolateColor("surfaceBorder"),
+      titleText: interpolateColor("titleText"),
+      subtitleText: interpolateColor("subtitleText"),
+      voiceLabelText: interpolateColor("voiceLabelText"),
+      voiceSupportText: interpolateColor("voiceSupportText"),
+      composerBackground: interpolateColor("composerBackground"),
+      composerBorder: interpolateColor("composerBorder"),
+      inputText: interpolateColor("inputText"),
+      inputPlaceholder: interpolateColor("inputPlaceholder"),
+      sendButtonBackground: interpolateColor("sendButtonBackground"),
+      sendButtonBorder: interpolateColor("sendButtonBorder"),
+      sendButtonText: interpolateColor("sendButtonText"),
+      userMessageBackground: interpolateColor("userMessageBackground"),
+      userMessageBorder: interpolateColor("userMessageBorder"),
+      userMessageText: interpolateColor("userMessageText"),
+      messageAccentText: interpolateColor("messageAccentText"),
     };
   }, [themeFrom, themeProgress, themeTo]);
+  const activeTheme = MODE_THEMES[selectedVoice];
 
   useEffect(() => {
     if (!preference || messages.length > 0) {
@@ -1083,7 +1178,9 @@ export default function App() {
   const sendButton = useMicroButton();
   const canSend = input.trim().length > 0 && !isSending;
 
-  const renderItem = ({ item }: { item: ChatMessage }) => <MessageBubble item={item} />;
+  const renderItem = ({ item }: { item: ChatMessage }) => (
+    <MessageBubble item={item} theme={activeTheme} />
+  );
 
   if (isLoadingAppLock) {
     return <LoadingState title="Preparing your tutor" subtitle="One quick moment..." />;
@@ -1228,19 +1325,23 @@ export default function App() {
             ]}
           />
           <View style={styles.headerTitleRow}>
-            <Text
-              style={styles.title}
+            <Animated.Text
+              style={[styles.title, { color: interpolatedTheme.titleText }]}
               onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
             >
               Chinese Tutor
-            </Text>
+            </Animated.Text>
             {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
               <Pressable onPress={handleLogout}>
                 <Text style={styles.logoutText}>Logout</Text>
               </Pressable>
             )}
           </View>
-          <Text style={styles.subtitle}>{systemHint}</Text>
+          <Animated.Text
+            style={[styles.subtitle, { color: interpolatedTheme.subtitleText }]}
+          >
+            {systemHint}
+          </Animated.Text>
           <Animated.View
             style={[
               styles.headerAccentTrack,
@@ -1271,10 +1372,16 @@ export default function App() {
             },
           ]}
         >
-          <Text style={styles.voiceTitle}>Voice Turn</Text>
-          <Text style={styles.voiceSubtitle}>
+          <Animated.Text
+            style={[styles.voiceTitle, { color: interpolatedTheme.voiceLabelText }]}
+          >
+            Voice Turn
+          </Animated.Text>
+          <Animated.Text
+            style={[styles.voiceSubtitle, { color: interpolatedTheme.voiceSupportText }]}
+          >
             Hold the button, speak, and release to translate + hear it back.
-          </Text>
+          </Animated.Text>
           {micPermission === "denied" ? (
             <Text style={styles.voiceError}>
               Microphone access is disabled. Enable it in system settings.
@@ -1339,15 +1446,36 @@ export default function App() {
             />
           </Animated.View>
           {voiceTurn ? (
-            <View style={styles.voiceResult}>
-              <Text style={styles.voiceLabel}>Transcript</Text>
-              <Text style={styles.voiceValue}>{voiceTurn.transcript}</Text>
-              <Text style={styles.voiceLabel}>Chinese</Text>
-              <Text style={styles.voiceValue}>{voiceTurn.chinese}</Text>
-              <Text style={styles.voiceLabel}>Pinyin</Text>
-              <Text style={styles.voiceValue}>{voiceTurn.pinyin}</Text>
+            <View
+              style={[
+                styles.voiceResult,
+                {
+                  borderColor: activeTheme.surfaceBorder,
+                },
+              ]}
+            >
+              <Text style={[styles.voiceLabel, { color: activeTheme.messageAccentText }]}>
+                Transcript
+              </Text>
+              <Text style={[styles.voiceValue, { color: activeTheme.voiceLabelText }]}>
+                {voiceTurn.transcript}
+              </Text>
+              <Text style={[styles.voiceLabel, { color: activeTheme.messageAccentText }]}>
+                Chinese
+              </Text>
+              <Text style={[styles.voiceValue, { color: activeTheme.voiceLabelText }]}>
+                {voiceTurn.chinese}
+              </Text>
+              <Text style={[styles.voiceLabel, { color: activeTheme.messageAccentText }]}>
+                Pinyin
+              </Text>
+              <Text style={[styles.voiceValue, { color: activeTheme.voiceLabelText }]}>
+                {voiceTurn.pinyin}
+              </Text>
               {voiceTurn.tts_error ? (
-                <Text style={styles.voiceAudioNote}>Audio unavailable</Text>
+                <Text style={[styles.voiceAudioNote, { color: activeTheme.voiceSupportText }]}>
+                  Audio unavailable
+                </Text>
               ) : null}
             </View>
           ) : null}
@@ -1370,9 +1498,10 @@ export default function App() {
             style={[
               styles.inputShell,
               {
+                backgroundColor: interpolatedTheme.composerBackground,
                 borderColor: inputFocusAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: ["#E7DAC8", "#CFB79A"],
+                  outputRange: [activeTheme.composerBorder, activeTheme.surfaceBorder],
                 }),
                 shadowOpacity: inputFocusAnim.interpolate({
                   inputRange: [0, 1],
@@ -1388,10 +1517,11 @@ export default function App() {
             <TextInput
               style={[
                 styles.input,
+                { color: activeTheme.inputText },
                 Platform.OS === "web" ? ({ outlineWidth: 0 } as never) : null,
               ]}
               placeholder="Write your phrase in English or 中文"
-              placeholderTextColor="#A48768"
+              placeholderTextColor={activeTheme.inputPlaceholder}
               selectionColor="#A06B43"
               value={input}
               onChangeText={setInput}
@@ -1433,6 +1563,10 @@ export default function App() {
               <Pressable
                 style={[
                   styles.sendButton,
+                  {
+                    backgroundColor: activeTheme.sendButtonBackground,
+                    borderColor: activeTheme.sendButtonBorder,
+                  },
                   (!canSend || isSending) && styles.sendButtonDisabled,
                 ]}
                 onPress={sendMessage}
@@ -1458,8 +1592,10 @@ export default function App() {
                     },
                   ]}
                 >
-                  <Text style={styles.sendButtonIcon}>➤</Text>
-                  <Text style={styles.sendButtonText}>{isSending ? "Sending" : "Send"}</Text>
+                  <Text style={[styles.sendButtonIcon, { color: activeTheme.sendButtonText }]}>➤</Text>
+                  <Text style={[styles.sendButtonText, { color: activeTheme.sendButtonText }]}>
+                    {isSending ? "Sending" : "Send"}
+                  </Text>
                 </Animated.View>
               </Pressable>
             </Animated.View>
@@ -1845,6 +1981,8 @@ const styles = StyleSheet.create({
     marginTop: 12,
     backgroundColor: "#FFF7ED",
     borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FED7AA",
     padding: 12,
   },
   voiceLabel: {
