@@ -18,6 +18,7 @@ import {
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
 import LockScreen from "./src/components/LockScreen";
+import VoiceStage, { type VoiceStageState } from "./src/components/VoiceStage";
 import {
   clearUnlock,
   hasValidUnlock,
@@ -126,6 +127,7 @@ export default function App() {
     useState<MicPermissionState>("undetermined");
   const [isRecording, setIsRecording] = useState(false);
   const [isUploadingVoice, setIsUploadingVoice] = useState(false);
+  const [isPlayingPronunciation, setIsPlayingPronunciation] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
@@ -441,8 +443,16 @@ export default function App() {
     const sound = new Audio.Sound();
     sound.setOnPlaybackStatusUpdate((status) => {
       console.log("Voice playback status:", status);
+      if (!status.isLoaded) {
+        setIsPlayingPronunciation(false);
+        return;
+      }
+      if (status.didJustFinish) {
+        setIsPlayingPronunciation(false);
+      }
     });
     await sound.loadAsync({ uri });
+    setIsPlayingPronunciation(true);
     await sound.playAsync();
     soundRef.current = sound;
   };
@@ -507,6 +517,12 @@ export default function App() {
       return;
     }
     setVoiceError(null);
+    if (soundRef.current) {
+      await soundRef.current.stopAsync();
+      await soundRef.current.unloadAsync();
+      soundRef.current = null;
+      setIsPlayingPronunciation(false);
+    }
     await Audio.setAudioModeAsync({
       allowsRecordingIOS: true,
       playsInSilentModeIOS: true,
@@ -527,6 +543,7 @@ export default function App() {
     }
     setIsRecording(false);
     setIsUploadingVoice(true);
+    setIsPlayingPronunciation(false);
     setVoiceError(null);
     try {
       await recording.stopAndUnloadAsync();
@@ -589,6 +606,7 @@ export default function App() {
           await playVoiceAudio(audioPayload, data.audio_mime);
         } catch (playbackError) {
           console.error("Voice playback error:", playbackError);
+          setIsPlayingPronunciation(false);
           setVoiceError(
             "Audio playback failed. Please check your volume and try again."
           );
@@ -613,6 +631,14 @@ export default function App() {
       setIsUploadingVoice(false);
     }
   };
+
+  const voiceStageState: VoiceStageState = isRecording
+    ? "listening"
+    : isUploadingVoice
+    ? "processing"
+    : isPlayingPronunciation
+    ? "speaking"
+    : "idle";
 
 
   const handleMicPress = async () => {
@@ -778,25 +804,16 @@ export default function App() {
             ))}
           </View>
 
-          <TouchableOpacity
-            style={[
-              styles.voiceButton,
-              isRecording && styles.voiceButtonActive,
-              (isUploadingVoice || micPermission === "denied") &&
-                styles.voiceButtonDisabled,
-            ]}
-            onPressIn={startRecording}
-            onPressOut={stopRecording}
+          <VoiceStage
+            state={voiceStageState}
+            onPressIn={() => {
+              void startRecording();
+            }}
+            onPressOut={() => {
+              void stopRecording();
+            }}
             disabled={isUploadingVoice || micPermission === "denied"}
-          >
-            <Text style={styles.voiceButtonText}>
-              {isRecording
-                ? "Recording..."
-                : isUploadingVoice
-                ? "Processing..."
-                : "Hold to Talk"}
-            </Text>
-          </TouchableOpacity>
+          />
           {voiceTurn ? (
             <View style={styles.voiceResult}>
               <Text style={styles.voiceLabel}>Transcript</Text>
