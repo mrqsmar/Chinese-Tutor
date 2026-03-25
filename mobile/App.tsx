@@ -55,6 +55,12 @@ const wait = (ms: number) =>
 type SpeakerPreference = "english" | "chinese";
 type MicPermissionState = "undetermined" | "granted" | "denied";
 type VoiceOption = "warm" | "bright" | "deep";
+type AmbientPalette = {
+  gradientTop: string;
+  gradientBottom: string;
+  blobPrimary: string;
+  blobSecondary: string;
+};
 
 type SpeechTurnAudio = {
   format: "mp3" | "wav";
@@ -213,6 +219,27 @@ const useMicroButton = () => {
   };
 };
 
+const AMBIENT_PALETTES: Record<VoiceOption, AmbientPalette> = {
+  warm: {
+    gradientTop: "#FFF8EE",
+    gradientBottom: "#FFEFE3",
+    blobPrimary: "rgba(251, 146, 120, 0.24)",
+    blobSecondary: "rgba(253, 186, 116, 0.2)",
+  },
+  bright: {
+    gradientTop: "#F7FCFF",
+    gradientBottom: "#EAF6FF",
+    blobPrimary: "rgba(125, 211, 252, 0.2)",
+    blobSecondary: "rgba(103, 232, 249, 0.18)",
+  },
+  deep: {
+    gradientTop: "#F5F0FF",
+    gradientBottom: "#E7E2F4",
+    blobPrimary: "rgba(109, 40, 217, 0.18)",
+    blobSecondary: "rgba(49, 46, 129, 0.18)",
+  },
+};
+
 
 const Onboarding = ({
   onSelect,
@@ -284,6 +311,9 @@ export default function App() {
   const inputFocusAnim = useRef(new Animated.Value(0)).current;
   const sendBurstAnim = useRef(new Animated.Value(0)).current;
   const stageTransition = useRef(new Animated.Value(0)).current;
+  const ambientDriftA = useRef(new Animated.Value(0)).current;
+  const ambientDriftB = useRef(new Animated.Value(0)).current;
+  const headerEntrance = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     logApiBaseUrl("App start");
@@ -442,6 +472,11 @@ export default function App() {
     }
     return "";
   }, [preference]);
+
+  const ambientPalette = useMemo(
+    () => AMBIENT_PALETTES[selectedVoice],
+    [selectedVoice]
+  );
 
   useEffect(() => {
     if (!preference || messages.length > 0) {
@@ -831,6 +866,62 @@ export default function App() {
     }).start();
   }, [stageTransition, voiceStageState]);
 
+  useEffect(() => {
+    ambientDriftA.setValue(0);
+    ambientDriftB.setValue(0);
+
+    const loopA = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ambientDriftA, {
+          toValue: 1,
+          duration: 30000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(ambientDriftA, {
+          toValue: 0,
+          duration: 30000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    const loopB = Animated.loop(
+      Animated.sequence([
+        Animated.timing(ambientDriftB, {
+          toValue: 1,
+          duration: 42000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+        Animated.timing(ambientDriftB, {
+          toValue: 0,
+          duration: 42000,
+          easing: Easing.inOut(Easing.sin),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+
+    loopA.start();
+    loopB.start();
+
+    return () => {
+      loopA.stop();
+      loopB.stop();
+    };
+  }, [ambientDriftA, ambientDriftB]);
+
+  useEffect(() => {
+    Animated.timing(headerEntrance, {
+      toValue: 1,
+      duration: 680,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [headerEntrance]);
+
   const handleMicPress = async () => {
     if (isUploadingVoice) {
       return;
@@ -911,27 +1002,119 @@ export default function App() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <View pointerEvents="none" style={styles.ambientBackground}>
+        <View
+          style={[
+            styles.ambientGradientLayer,
+            { backgroundColor: ambientPalette.gradientTop },
+          ]}
+        />
+        <View
+          style={[
+            styles.ambientGradientLayerBottom,
+            { backgroundColor: ambientPalette.gradientBottom },
+          ]}
+        />
+        <Animated.View
+          style={[
+            styles.ambientBlobPrimary,
+            {
+              backgroundColor: ambientPalette.blobPrimary,
+              transform: [
+                {
+                  translateX: ambientDriftA.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-24, 26],
+                  }),
+                },
+                {
+                  translateY: ambientDriftA.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [-18, 22],
+                  }),
+                },
+                {
+                  scale: ambientDriftA.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [1, 1.08],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+        <Animated.View
+          style={[
+            styles.ambientBlobSecondary,
+            {
+              backgroundColor: ambientPalette.blobSecondary,
+              transform: [
+                {
+                  translateX: ambientDriftB.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [22, -26],
+                  }),
+                },
+                {
+                  translateY: ambientDriftB.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [20, -18],
+                  }),
+                },
+                {
+                  scale: ambientDriftB.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [1.03, 0.98],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      </View>
       <KeyboardAvoidingView
         style={styles.keyboardAvoid}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
       >
-        <View style={styles.header}>
-          <Text
-            style={styles.title}
-            onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
-          >
-            Chinese Tutor
-          </Text>
-          <View style={styles.headerRow}>
-            <Text style={styles.subtitle}>{systemHint}</Text>
+        <Animated.View
+          style={[
+            styles.headerHero,
+            {
+              opacity: headerEntrance.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 1],
+              }),
+              transform: [
+                {
+                  translateY: headerEntrance.interpolate({
+                    inputRange: [0, 1],
+                    outputRange: [10, 0],
+                  }),
+                },
+              ],
+            },
+          ]}
+        >
+          <View style={styles.headerAccentGlow} />
+          <View style={styles.headerTitleRow}>
+            <Text
+              style={styles.title}
+              onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
+            >
+              Chinese Tutor
+            </Text>
             {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
               <Pressable onPress={handleLogout}>
                 <Text style={styles.logoutText}>Logout</Text>
               </Pressable>
             )}
           </View>
-        </View>
+          <Text style={styles.subtitle}>{systemHint}</Text>
+          <View style={styles.headerAccentTrack}>
+            <View style={styles.headerAccentLine} />
+          </View>
+        </Animated.View>
 
         {error ? (
           <View style={styles.errorBanner}>
@@ -1131,7 +1314,40 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#FFF7ED",
+    backgroundColor: "#FDF8F2",
+  },
+  ambientBackground: {
+    ...StyleSheet.absoluteFillObject,
+    overflow: "hidden",
+  },
+  ambientGradientLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  ambientGradientLayerBottom: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: "68%",
+    opacity: 0.82,
+  },
+  ambientBlobPrimary: {
+    position: "absolute",
+    width: 420,
+    height: 420,
+    borderRadius: 420,
+    top: -120,
+    right: -120,
+    opacity: 0.75,
+  },
+  ambientBlobSecondary: {
+    position: "absolute",
+    width: 460,
+    height: 460,
+    borderRadius: 460,
+    bottom: -170,
+    left: -150,
+    opacity: 0.62,
   },
   keyboardAvoid: {
     flex: 1,
@@ -1141,28 +1357,54 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  header: {
+  headerHero: {
     paddingHorizontal: 20,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingTop: 18,
+    paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#F5D0A9",
+    borderBottomColor: "rgba(245, 208, 169, 0.55)",
+    backgroundColor: "rgba(255, 249, 239, 0.68)",
   },
-  title: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#7C2D12",
-  },
-  subtitle: {
-    marginTop: 6,
-    fontSize: 12,
-    color: "#B45309",
-  },
-  headerRow: {
-    marginTop: 6,
+  headerTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  headerAccentGlow: {
+    position: "absolute",
+    width: 190,
+    height: 190,
+    borderRadius: 190,
+    right: -70,
+    top: -90,
+    backgroundColor: "rgba(251, 191, 36, 0.12)",
+  },
+  title: {
+    fontSize: 30,
+    lineHeight: 34,
+    fontWeight: "800",
+    letterSpacing: -0.4,
+    color: "#6B2C12",
+  },
+  subtitle: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#9A5A2B",
+  },
+  headerAccentTrack: {
+    marginTop: 10,
+    width: "100%",
+    height: 2,
+    borderRadius: 2,
+    backgroundColor: "rgba(194, 65, 12, 0.1)",
+    overflow: "hidden",
+  },
+  headerAccentLine: {
+    width: "42%",
+    height: "100%",
+    borderRadius: 2,
+    backgroundColor: "rgba(234, 88, 12, 0.45)",
   },
   logoutText: {
     fontSize: 12,
