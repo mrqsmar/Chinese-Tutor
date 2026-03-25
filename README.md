@@ -47,6 +47,9 @@ For demo-only flows, you can temporarily set `DEMO_DISABLE_AUTH=true` on the bac
 `EXPO_PUBLIC_DEMO_MODE=true` on the mobile app to bypass lock/login screens and open
 directly to the chatbot UI.
 
+In local development (`ENVIRONMENT` not set to `production`), backend auth is also bypassed
+automatically so `/api/chat` works without logging in.
+
 If you only want the chatbot screen in mobile (no lock, no login, no onboarding),
 set `EXPO_PUBLIC_CHATBOT_ONLY_MODE=true`. This auto-selects the English speaker path.
 

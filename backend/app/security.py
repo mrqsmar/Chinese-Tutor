@@ -38,6 +38,10 @@ def _demo_auth_disabled() -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _is_production() -> bool:
+    return os.getenv("ENVIRONMENT", "development").strip().lower() == "production"
+
+
 def _access_token_secret() -> str:
     return os.getenv("ACCESS_TOKEN_SECRET", ACCESS_TOKEN_SECRET)
 
@@ -192,7 +196,7 @@ def revoke_refresh_token(refresh_token: str) -> None:
 def get_auth_context(
     credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> AuthContext:
-    if _demo_auth_disabled():
+    if _demo_auth_disabled() or not _is_production():
         return AuthContext(
             user_id=os.getenv("DEMO_AUTH_USER", "demo-user"),
             roles=["admin", "user"],
