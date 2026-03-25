@@ -35,6 +35,12 @@ const isTruthy = (value: string | undefined) =>
   ["1", "true", "yes", "on"].includes((value ?? "").toLowerCase());
 
 const DEMO_MODE = isTruthy(process.env.EXPO_PUBLIC_DEMO_MODE);
+const CHATBOT_ONLY_MODE = isTruthy(
+  process.env.EXPO_PUBLIC_CHATBOT_ONLY_MODE
+);
+const REQUIRE_AUTH =
+  isTruthy(process.env.EXPO_PUBLIC_REQUIRE_AUTH) &&
+  process.env.NODE_ENV === "production";
 
 const createId = () => Math.random().toString(36).slice(2, 10);
 
@@ -130,7 +136,7 @@ export default function App() {
   useEffect(() => {
     logApiBaseUrl("App start");
     const loadAppLock = async () => {
-      if (DEMO_MODE) {
+      if (DEMO_MODE || CHATBOT_ONLY_MODE) {
         setIsAppUnlocked(true);
         setIsLoadingAppLock(false);
         return;
@@ -155,7 +161,7 @@ export default function App() {
         return;
       }
       setApiError(null);
-      if (DEMO_MODE) {
+      if (DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH) {
         setIsAuthenticated(true);
         setIsBootstrapping(false);
         return;
@@ -200,8 +206,15 @@ export default function App() {
     loadPreference();
   }, [isAppUnlocked, isAuthenticated]);
 
+  useEffect(() => {
+    if (!CHATBOT_ONLY_MODE || preference) {
+      return;
+    }
+    setPreference("english");
+  }, [preference, CHATBOT_ONLY_MODE]);
+
   const handleUnlock = async () => {
-    if (DEMO_MODE) {
+    if (DEMO_MODE || CHATBOT_ONLY_MODE) {
       setIsAppUnlocked(true);
       return;
     }
@@ -215,7 +228,7 @@ export default function App() {
   };
 
   const handleLock = async () => {
-    if (DEMO_MODE) {
+    if (DEMO_MODE || CHATBOT_ONLY_MODE) {
       return;
     }
     await clearUnlock();
@@ -668,7 +681,12 @@ export default function App() {
     );
   }
 
-  if (!DEMO_MODE && !isAuthenticated) {
+  if (
+    REQUIRE_AUTH &&
+    !DEMO_MODE &&
+    !CHATBOT_ONLY_MODE &&
+    !isAuthenticated
+  ) {
     return (
       <AuthScreen
         onSubmit={handleLogin}
@@ -698,12 +716,15 @@ export default function App() {
         keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
       >
         <View style={styles.header}>
-          <Text style={styles.title} onLongPress={handleLock}>
+          <Text
+            style={styles.title}
+            onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
+          >
             Chinese Tutor
           </Text>
           <View style={styles.headerRow}>
             <Text style={styles.subtitle}>{systemHint}</Text>
-            {DEMO_MODE ? null : (
+            {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
               <TouchableOpacity onPress={handleLogout}>
                 <Text style={styles.logoutText}>Logout</Text>
               </TouchableOpacity>

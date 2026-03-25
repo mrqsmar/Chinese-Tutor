@@ -47,6 +47,9 @@ For demo-only flows, you can temporarily set `DEMO_DISABLE_AUTH=true` on the bac
 `EXPO_PUBLIC_DEMO_MODE=true` on the mobile app to bypass lock/login screens and open
 directly to the chatbot UI.
 
+If you only want the chatbot screen in mobile (no lock, no login, no onboarding),
+set `EXPO_PUBLIC_CHATBOT_ONLY_MODE=true`. This auto-selects the English speaker path.
+
 ### Endpoints
 
 `POST /auth/login`
@@ -141,6 +144,26 @@ npm run start
 
 > Set `EXPO_PUBLIC_API_URL` to your deployed HTTPS API (no localhost/LAN).
 > Set `EXPO_PUBLIC_DEMO_MODE=true` only when you need a login-free demo build.
+> Set `EXPO_PUBLIC_CHATBOT_ONLY_MODE=true` when you want chatbot-only UI.
+> Sign-in is now optional by default. Set `EXPO_PUBLIC_REQUIRE_AUTH=true` only if you want the login screen enabled in production builds.
+> When `EXPO_PUBLIC_REQUIRE_AUTH` is not `true`, the mobile client will not call `/auth/refresh` on `401` responses.
+
+### Build an Android file (.apk) to share
+
+If your partner wants an installable Android file, create an APK with EAS:
+
+```bash
+cd mobile
+npm install
+npx eas-cli login
+EXPO_PUBLIC_API_URL=https://api.example.com \
+EXPO_PUBLIC_CHATBOT_ONLY_MODE=true \
+npx eas build --platform android --profile preview
+```
+
+- Download the generated `.apk` from the EAS build link and share it directly.
+- `preview` profile in `mobile/eas.json` is configured for `apk` output.
+- For Play Store uploads later, use `--profile production` (AAB output).
 
 ## Notes
 

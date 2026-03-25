@@ -3,6 +3,13 @@ import { Platform } from "react-native";
 
 import { API_BASE_URL } from "./api";
 
+const isTruthy = (value: string | undefined) =>
+  ["1", "true", "yes", "on"].includes((value ?? "").toLowerCase());
+
+export const AUTH_REQUIRED =
+  isTruthy(process.env.EXPO_PUBLIC_REQUIRE_AUTH) &&
+  process.env.NODE_ENV === "production";
+
 const REFRESH_TOKEN_KEY = "refreshToken";
 const CLIENT_TYPE = Platform.OS === "web" ? "web" : "mobile";
 
