@@ -145,6 +145,8 @@ npm run start
 > Set `EXPO_PUBLIC_API_URL` to your deployed HTTPS API (no localhost/LAN).
 > Set `EXPO_PUBLIC_DEMO_MODE=true` only when you need a login-free demo build.
 > Set `EXPO_PUBLIC_CHATBOT_ONLY_MODE=true` when you want chatbot-only UI.
+> Sign-in is now optional by default. Set `EXPO_PUBLIC_REQUIRE_AUTH=true` only if you want the login screen enabled in production builds.
+> When `EXPO_PUBLIC_REQUIRE_AUTH` is not `true`, the mobile client will not call `/auth/refresh` on `401` responses.
 
 ### Build an Android file (.apk) to share
 

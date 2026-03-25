@@ -38,6 +38,9 @@ const DEMO_MODE = isTruthy(process.env.EXPO_PUBLIC_DEMO_MODE);
 const CHATBOT_ONLY_MODE = isTruthy(
   process.env.EXPO_PUBLIC_CHATBOT_ONLY_MODE
 );
+const REQUIRE_AUTH =
+  isTruthy(process.env.EXPO_PUBLIC_REQUIRE_AUTH) &&
+  process.env.NODE_ENV === "production";
 
 const createId = () => Math.random().toString(36).slice(2, 10);
 
@@ -158,7 +161,7 @@ export default function App() {
         return;
       }
       setApiError(null);
-      if (DEMO_MODE || CHATBOT_ONLY_MODE) {
+      if (DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH) {
         setIsAuthenticated(true);
         setIsBootstrapping(false);
         return;
@@ -678,7 +681,12 @@ export default function App() {
     );
   }
 
-  if (!DEMO_MODE && !CHATBOT_ONLY_MODE && !isAuthenticated) {
+  if (
+    REQUIRE_AUTH &&
+    !DEMO_MODE &&
+    !CHATBOT_ONLY_MODE &&
+    !isAuthenticated
+  ) {
     return (
       <AuthScreen
         onSubmit={handleLogin}
@@ -716,7 +724,7 @@ export default function App() {
           </Text>
           <View style={styles.headerRow}>
             <Text style={styles.subtitle}>{systemHint}</Text>
-            {DEMO_MODE || CHATBOT_ONLY_MODE ? null : (
+            {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
               <TouchableOpacity onPress={handleLogout}>
                 <Text style={styles.logoutText}>Logout</Text>
               </TouchableOpacity>

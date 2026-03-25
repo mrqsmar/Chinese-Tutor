@@ -1,7 +1,7 @@
 import { Platform } from "react-native";
 
 import { API_BASE_URL } from "./api";
-import { getAccessToken, refreshSession } from "./auth";
+import { AUTH_REQUIRED, getAccessToken, refreshSession } from "./auth";
 
 const CLIENT_TYPE = Platform.OS === "web" ? "web" : "mobile";
 
@@ -28,7 +28,7 @@ export const apiFetch = async (
     credentials: withCredentials,
   });
 
-  if (response.status === 401 && retry) {
+  if (AUTH_REQUIRED && response.status === 401 && retry) {
     const refreshed = await refreshSession();
     if (refreshed) {
       return apiFetch(path, options, false);
