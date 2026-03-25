@@ -432,6 +432,7 @@ const VoiceStage = ({
       <Animated.Text
         style={[
           styles.statusText,
+          state === "idle" ? styles.statusTextIdle : null,
           {
             opacity: stateMorph.interpolate({
               inputRange: [0, 1, 2, 3],
@@ -544,9 +545,13 @@ const styles = StyleSheet.create({
   statusText: {
     marginTop: 14,
     fontSize: 13,
-    color: "#CDE5FF",
+    color: "#6B7280",
     fontWeight: "500",
     letterSpacing: 0.2,
+  },
+  statusTextIdle: {
+    color: "#27272A",
+    fontWeight: "600",
   },
 });
 

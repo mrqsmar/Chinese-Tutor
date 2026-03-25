@@ -1,4 +1,4 @@
-import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
+import { Animated, StyleSheet, Text, View } from "react-native";
 import { useEffect, useMemo, useRef } from "react";
 
 type StructuredLearningCardProps = {
@@ -6,7 +6,6 @@ type StructuredLearningCardProps = {
   pinyin?: string;
   english: string;
   tip?: string;
-  onTrySpeaking?: () => void;
 };
 
 const HAN_REGEX = /[\u3400-\u9FFF]/;
@@ -63,7 +62,6 @@ const StructuredLearningCard = ({
   pinyin,
   english,
   tip,
-  onTrySpeaking,
 }: StructuredLearningCardProps) => {
   const entrance = useRef(new Animated.Value(0)).current;
 
@@ -103,11 +101,6 @@ const StructuredLearningCard = ({
         </View>
       ) : null}
 
-      {onTrySpeaking ? (
-        <Pressable style={styles.ctaButton} onPress={onTrySpeaking}>
-          <Text style={styles.ctaText}>🎙 Try speaking</Text>
-        </Pressable>
-      ) : null}
     </Animated.View>
   );
 };
@@ -165,19 +158,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 18,
     color: "#6D28D9",
-  },
-  ctaButton: {
-    marginTop: 4,
-    backgroundColor: "#6D28D9",
-    borderRadius: 999,
-    alignSelf: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-  },
-  ctaText: {
-    color: "#FFFFFF",
-    fontSize: 13,
-    fontWeight: "600",
   },
 });
 

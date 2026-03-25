@@ -182,10 +182,7 @@ const MessageBubble = ({ item }: { item: ChatMessage }) => {
       {item.isTyping ? (
         <TypingIndicator />
       ) : item.role === "assistant" ? (
-        <StructuredLearningCard
-          {...parseLearningCard(item.text)}
-          onTrySpeaking={() => undefined}
-        />
+        <StructuredLearningCard {...parseLearningCard(item.text)} />
       ) : (
         <Text style={item.role === "user" ? styles.userText : styles.botText}>
           {item.text}
