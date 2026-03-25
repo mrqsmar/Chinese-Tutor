@@ -887,6 +887,7 @@ export default function App() {
 
           <VoiceStage
             state={voiceStageState}
+            mode={selectedVoice}
             onPressIn={() => {
               void startRecording();
             }}
