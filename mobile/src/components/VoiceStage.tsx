@@ -23,7 +23,7 @@ type VoiceStageProps = {
 const statusTextByState: Record<VoiceStageState, string> = {
   idle: "Tap and hold to speak",
   listening: "Listening...",
-  processing: "Generating reply...",
+  processing: "Thinking...",
   speaking: "Playing pronunciation...",
 };
 
@@ -40,9 +40,21 @@ const VoiceStage = ({
   const ringPulse = useRef(new Animated.Value(0)).current;
   const ringSpin = useRef(new Animated.Value(0)).current;
   const speakingShimmer = useRef(new Animated.Value(0)).current;
+  const stateMorph = useRef(new Animated.Value(0)).current;
   const modeTransition = useRef(
     new Animated.Value(mode === "warm" ? 0 : mode === "bright" ? 1 : 2)
   ).current;
+
+  useEffect(() => {
+    const nextState =
+      state === "idle" ? 0 : state === "listening" ? 1 : state === "processing" ? 2 : 3;
+    Animated.timing(stateMorph, {
+      toValue: nextState,
+      duration: 280,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [state, stateMorph]);
 
   useEffect(() => {
     const targetMode = mode === "warm" ? 0 : mode === "bright" ? 1 : 2;
@@ -250,6 +262,29 @@ const VoiceStage = ({
         style={styles.pressable}
       >
         <View style={[styles.orbShell, { width: size + 20, height: size + 20 }]}>
+        <Animated.View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            width: size + 30,
+            height: size + 30,
+            borderRadius: 999,
+            borderWidth: 1,
+            borderColor: "rgba(255,255,255,0.12)",
+            opacity: stateMorph.interpolate({
+              inputRange: [0, 1, 2, 3],
+              outputRange: [0.08, 0.16, 0.2, 0.14],
+            }),
+            transform: [
+              {
+                scale: stateMorph.interpolate({
+                  inputRange: [0, 1, 2, 3],
+                  outputRange: [1, 1.03, 1.04, 1.02],
+                }),
+              },
+            ],
+          }}
+        />
           <Animated.View
             style={[
               styles.ambientGlow,
@@ -394,7 +429,27 @@ const VoiceStage = ({
           </Animated.View>
         </View>
       </Pressable>
-      <Text style={styles.statusText}>{statusText}</Text>
+      <Animated.Text
+        style={[
+          styles.statusText,
+          {
+            opacity: stateMorph.interpolate({
+              inputRange: [0, 1, 2, 3],
+              outputRange: [0.9, 1, 0.96, 0.94],
+            }),
+            transform: [
+              {
+                translateY: stateMorph.interpolate({
+                  inputRange: [0, 1, 2, 3],
+                  outputRange: [0, -1, -1, 0],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        {statusText}
+      </Animated.Text>
     </View>
   );
 };
