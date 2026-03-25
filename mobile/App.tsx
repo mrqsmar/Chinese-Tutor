@@ -4,6 +4,8 @@ import * as FileSystem from "expo-file-system/legacy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Easing,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -74,6 +76,103 @@ type SpeechTurnResponse = {
   audio_job_id?: string | null;
   audio_pending?: boolean | null;
   tts_error?: string | null;
+};
+
+const TypingIndicator = () => {
+  const dotAnims = useRef([
+    new Animated.Value(0.35),
+    new Animated.Value(0.35),
+    new Animated.Value(0.35),
+  ]).current;
+
+  useEffect(() => {
+    const loops = dotAnims.map((anim, index) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(index * 140),
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: 220,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim, {
+            toValue: 0.35,
+            duration: 220,
+            useNativeDriver: true,
+          }),
+        ])
+      )
+    );
+
+    loops.forEach((loop) => loop.start());
+    return () => loops.forEach((loop) => loop.stop());
+  }, [dotAnims]);
+
+  return (
+    <View style={styles.typingDotsRow}>
+      {dotAnims.map((anim, index) => (
+        <Animated.View
+          key={index}
+          style={[
+            styles.typingDot,
+            {
+              opacity: anim,
+              transform: [
+                {
+                  translateY: anim.interpolate({
+                    inputRange: [0.35, 1],
+                    outputRange: [0, -2],
+                  }),
+                },
+              ],
+            },
+          ]}
+        />
+      ))}
+      <Text style={styles.typingText}>Thinking...</Text>
+    </View>
+  );
+};
+
+const MessageBubble = ({ item }: { item: ChatMessage }) => {
+  const entrance = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.timing(entrance, {
+      toValue: 1,
+      duration: 300,
+      useNativeDriver: true,
+      easing: Easing.out(Easing.cubic),
+    }).start();
+  }, [entrance]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.messageBubble,
+        item.role === "user" ? styles.userBubble : styles.botBubble,
+        {
+          opacity: entrance,
+          transform: [
+            {
+              translateY: entrance.interpolate({
+                inputRange: [0, 1],
+                outputRange: [10, 0],
+              }),
+            },
+          ],
+        },
+      ]}
+    >
+      {item.isTyping ? (
+        <TypingIndicator />
+      ) : (
+        <Text style={item.role === "user" ? styles.userText : styles.botText}>
+          {item.text}
+        </Text>
+      )}
+    </Animated.View>
+  );
 };
 
 
@@ -663,25 +762,7 @@ export default function App() {
     };
   }, []);
 
-  const renderItem = ({ item }: { item: ChatMessage }) => (
-    <View
-      style={[
-        styles.messageBubble,
-        item.role === "user" ? styles.userBubble : styles.botBubble,
-      ]}
-    >
-      {item.isTyping ? (
-        <View style={styles.typingRow}>
-          <ActivityIndicator size="small" color="#6A6A6A" />
-          <Text style={styles.typingText}>Typing...</Text>
-        </View>
-      ) : (
-        <Text style={item.role === "user" ? styles.userText : styles.botText}>
-          {item.text}
-        </Text>
-      )}
-    </View>
-  );
+  const renderItem = ({ item }: { item: ChatMessage }) => <MessageBubble item={item} />;
 
   if (isLoadingAppLock) {
     return (
@@ -922,35 +1003,59 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   messageBubble: {
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     marginBottom: 12,
     maxWidth: "85%",
+    borderWidth: 1,
   },
   userBubble: {
-    backgroundColor: "#B91C1C",
+    backgroundColor: "#FFF9F3",
+    borderColor: "#FED7AA",
     alignSelf: "flex-end",
+    shadowColor: "#A16207",
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   botBubble: {
-    backgroundColor: "#FEF3C7",
+    backgroundColor: "#FFF5FF",
+    borderColor: "#E9D5FF",
     alignSelf: "flex-start",
+    shadowColor: "#A855F7",
+    shadowOpacity: 0.16,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 2,
   },
   userText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-  },
-  botText: {
     color: "#7C2D12",
     fontSize: 14,
+    lineHeight: 20,
   },
-  typingRow: {
+  botText: {
+    color: "#581C87",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  typingDotsRow: {
     flexDirection: "row",
     alignItems: "center",
   },
+  typingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: "#7E22CE",
+    marginRight: 4,
+  },
   typingText: {
-    marginLeft: 8,
-    color: "#6A6A6A",
+    marginLeft: 6,
+    color: "#6B21A8",
     fontSize: 12,
+    fontWeight: "500",
   },
   inputBar: {
     flexDirection: "row",
