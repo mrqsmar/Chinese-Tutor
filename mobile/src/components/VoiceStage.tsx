@@ -30,11 +30,10 @@ const VoiceStage = ({
   onPressIn,
   onPressOut,
   disabled = false,
-  size = 68,
+  size = 64,
 }: VoiceStageProps) => {
   const breathing = useRef(new Animated.Value(0)).current;
   const pressScale = useRef(new Animated.Value(0)).current;
-  const stateBoost = useRef(new Animated.Value(0)).current;
   const ringPulse = useRef(new Animated.Value(0)).current;
   const ringSpin = useRef(new Animated.Value(0)).current;
   const speakingShimmer = useRef(new Animated.Value(0)).current;
@@ -44,15 +43,15 @@ const VoiceStage = ({
       Animated.sequence([
         Animated.timing(breathing, {
           toValue: 1,
-          duration: 1650,
+          duration: 2000,
           useNativeDriver: true,
-          easing: Easing.inOut(Easing.cubic),
+          easing: Easing.inOut(Easing.ease),
         }),
         Animated.timing(breathing, {
           toValue: 0,
-          duration: 1850,
+          duration: 2000,
           useNativeDriver: true,
-          easing: Easing.inOut(Easing.cubic),
+          easing: Easing.inOut(Easing.ease),
         }),
       ])
     );
@@ -63,20 +62,11 @@ const VoiceStage = ({
   useEffect(() => {
     Animated.spring(pressScale, {
       toValue: state === "listening" ? 1 : 0,
-      friction: 6,
-      tension: 210,
+      friction: 7,
+      tension: 180,
       useNativeDriver: true,
     }).start();
   }, [pressScale, state]);
-
-  useEffect(() => {
-    Animated.spring(stateBoost, {
-      toValue: state === "idle" ? 0 : 1,
-      friction: 8,
-      tension: 170,
-      useNativeDriver: true,
-    }).start();
-  }, [state, stateBoost]);
 
   useEffect(() => {
     if (state !== "listening") {
@@ -89,15 +79,15 @@ const VoiceStage = ({
       Animated.sequence([
         Animated.timing(ringPulse, {
           toValue: 1,
-          duration: 260,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.exp),
-        }),
-        Animated.timing(ringPulse, {
-          toValue: 0.15,
           duration: 420,
           useNativeDriver: true,
           easing: Easing.out(Easing.cubic),
+        }),
+        Animated.timing(ringPulse, {
+          toValue: 0.2,
+          duration: 360,
+          useNativeDriver: true,
+          easing: Easing.in(Easing.quad),
         }),
       ])
     );
@@ -113,19 +103,12 @@ const VoiceStage = ({
     }
 
     const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(ringSpin, {
-          toValue: 1,
-          duration: 900,
-          useNativeDriver: true,
-          easing: Easing.out(Easing.cubic),
-        }),
-        Animated.timing(ringSpin, {
-          toValue: 0,
-          duration: 0,
-          useNativeDriver: true,
-        }),
-      ])
+      Animated.timing(ringSpin, {
+        toValue: 1,
+        duration: 1200,
+        useNativeDriver: true,
+        easing: Easing.linear,
+      })
     );
     loop.start();
     return () => loop.stop();
@@ -141,9 +124,9 @@ const VoiceStage = ({
     const loop = Animated.loop(
       Animated.timing(speakingShimmer, {
         toValue: 1,
-        duration: 620,
+        duration: 760,
         useNativeDriver: true,
-        easing: Easing.inOut(Easing.ease),
+        easing: Easing.inOut(Easing.sin),
       })
     );
     loop.start();
@@ -155,22 +138,14 @@ const VoiceStage = ({
     outputRange: [1, 1.04],
   });
 
-  const baseGlow = breathing.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.34, 0.62],
-  });
-
   const glowOpacity = Animated.add(
-    Animated.add(
-      baseGlow,
-      pressScale.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 0.2],
-      })
-    ),
-    stateBoost.interpolate({
+    breathing.interpolate({
       inputRange: [0, 1],
-      outputRange: [0, 0.14],
+      outputRange: [0.24, 0.4],
+    }),
+    pressScale.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, 0.25],
     })
   );
 
@@ -191,10 +166,6 @@ const VoiceStage = ({
 
   const statusText = useMemo(() => statusTextByState[state], [state]);
   const ringSize = size + 18;
-  const shellScale = stateBoost.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.02],
-  });
 
   return (
     <View style={styles.container}>
@@ -204,45 +175,18 @@ const VoiceStage = ({
         disabled={disabled}
         style={styles.pressable}
       >
-        <Animated.View
-          style={[
-            styles.orbShell,
-            { width: size + 22, height: size + 22, transform: [{ scale: shellScale }] },
-          ]}
-        >
+        <View style={[styles.orbShell, { width: size + 20, height: size + 20 }]}>
           <Animated.View
             style={[
-              styles.ambientGlowCyan,
+              styles.ambientGlow,
               {
-                width: size + 34,
-                height: size + 34,
+                width: size + 26,
+                height: size + 26,
                 opacity: glowOpacity,
-                transform: [
-                  {
-                    scale: breathing.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [1.02, 1.18],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          />
-          <Animated.View
-            style={[
-              styles.ambientGlowViolet,
-              {
-                width: size + 28,
-                height: size + 28,
-                opacity: glowOpacity,
-                transform: [
-                  {
-                    scale: breathing.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [1, 1.12],
-                    }),
-                  },
-                ],
+                transform: [{ scale: breathing.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [1, 1.09],
+                }) }],
               },
             ]}
           />
@@ -283,18 +227,10 @@ const VoiceStage = ({
                     {
                       transform: [
                         { rotate: `${segment * 90}deg` },
-                        {
-                          scaleX: shimmerTranslate.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0.72, segment % 2 === 0 ? 1.22 : 1.02],
-                          }),
-                        },
-                        {
-                          translateY: shimmerTranslate.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, segment % 2 === 0 ? -1.8 : 1.8],
-                          }),
-                        },
+                        { translateY: shimmerTranslate.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0, segment % 2 === 0 ? -1.5 : 1.5],
+                        }) },
                       ],
                       opacity: speakingShimmer.interpolate({
                         inputRange: [0, 0.5, 1],
@@ -319,10 +255,9 @@ const VoiceStage = ({
             ]}
           >
             <View style={styles.orbHighlight} />
-            <View style={styles.orbAccent} />
             <View style={styles.orbInnerCore} />
           </Animated.View>
-        </Animated.View>
+        </View>
       </Pressable>
       <Text style={styles.statusText}>{statusText}</Text>
     </View>
@@ -342,75 +277,57 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  ambientGlowCyan: {
+  ambientGlow: {
     position: "absolute",
     borderRadius: 999,
-    backgroundColor: "#4DE9FF66",
-    shadowColor: "#4BDFFF",
-    shadowOpacity: 0.95,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  ambientGlowViolet: {
-    position: "absolute",
-    borderRadius: 999,
-    backgroundColor: "#7D5BFF55",
-    shadowColor: "#8A6BFF",
-    shadowOpacity: 0.9,
+    backgroundColor: "#58D5FF55",
+    shadowColor: "#7E5CFF",
+    shadowOpacity: 0.8,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 0 },
   },
   orb: {
-    backgroundColor: "#FFFFFF30",
+    backgroundColor: "#FFFFFF2E",
     borderWidth: 1,
-    borderColor: "#FFFFFF88",
+    borderColor: "#FFFFFF77",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    shadowColor: "#6BE0FF",
-    shadowOpacity: 0.58,
-    shadowRadius: 24,
+    shadowColor: "#5CE1FF",
+    shadowOpacity: 0.42,
+    shadowRadius: 18,
     shadowOffset: { width: 0, height: 8 },
-    elevation: 10,
+    elevation: 7,
   },
   orbHighlight: {
     position: "absolute",
     width: "100%",
-    height: "52%",
+    height: "50%",
     top: 0,
-    backgroundColor: "#FFFFFF55",
-  },
-  orbAccent: {
-    position: "absolute",
-    width: "90%",
-    height: "90%",
-    borderRadius: 999,
-    backgroundColor: "#71E5FF22",
-    borderWidth: 1,
-    borderColor: "#9D8BFF33",
+    backgroundColor: "#FFFFFF44",
   },
   orbInnerCore: {
-    width: "56%",
-    height: "56%",
+    width: "52%",
+    height: "52%",
     borderRadius: 999,
-    backgroundColor: "#A8F2FF5C",
+    backgroundColor: "#A8F2FF44",
     borderWidth: 1,
-    borderColor: "#D4C8FF88",
+    borderColor: "#C8B8FF66",
   },
   listeningRing: {
     position: "absolute",
     borderRadius: 999,
-    borderWidth: 2.4,
+    borderWidth: 2,
     borderColor: "#64E9FF",
     shadowColor: "#6FD6FF",
-    shadowOpacity: 0.7,
-    shadowRadius: 10,
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
     shadowOffset: { width: 0, height: 0 },
   },
   processingRing: {
     position: "absolute",
     borderRadius: 999,
-    borderWidth: 2.5,
+    borderWidth: 2,
     borderTopColor: "#59DEFF",
     borderRightColor: "#8263FF",
     borderBottomColor: "#59DEFF22",
@@ -423,10 +340,10 @@ const styles = StyleSheet.create({
   },
   speakingSegment: {
     position: "absolute",
-    width: "68%",
-    height: 2.4,
+    width: "72%",
+    height: 2,
     borderRadius: 999,
-    backgroundColor: "#87DAFF",
+    backgroundColor: "#7FD2FF",
     shadowColor: "#8A6BFF",
     shadowOpacity: 0.9,
     shadowRadius: 5,
@@ -435,9 +352,9 @@ const styles = StyleSheet.create({
   statusText: {
     marginTop: 14,
     fontSize: 13,
-    color: "#D7E7FF",
-    fontWeight: "600",
-    letterSpacing: 0.3,
+    color: "#CDE5FF",
+    fontWeight: "500",
+    letterSpacing: 0.2,
   },
 });
 
