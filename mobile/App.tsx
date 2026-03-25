@@ -146,10 +146,34 @@ const TypingIndicator = () => {
           ]}
         />
       ))}
-      <Text style={styles.typingText}>Thinking...</Text>
+      <Text style={styles.typingText}>Translating your phrase...</Text>
     </View>
   );
 };
+
+const LoadingState = ({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle: string;
+}) => (
+  <SafeAreaView style={styles.loadingContainer}>
+    <ActivityIndicator size="large" color="#A16207" />
+    <Text style={styles.loadingTitle}>{title}</Text>
+    <Text style={styles.loadingSubtitle}>{subtitle}</Text>
+  </SafeAreaView>
+);
+
+const EmptyChatState = () => (
+  <View style={styles.emptyStateCard}>
+    <Text style={styles.emptyStateEyebrow}>Start learning</Text>
+    <Text style={styles.emptyStateTitle}>Say one phrase out loud or type one.</Text>
+    <Text style={styles.emptyStateBody}>
+      Try: “How do I say nice to meet you?” or “1, 2, 3 in Chinese.”
+    </Text>
+  </View>
+);
 
 const MessageBubble = ({ item }: { item: ChatMessage }) => {
   const entrance = useRef(new Animated.Value(0)).current;
@@ -332,6 +356,7 @@ export default function App() {
   const [isRecording, setIsRecording] = useState(false);
   const [isUploadingVoice, setIsUploadingVoice] = useState(false);
   const [isPlayingPronunciation, setIsPlayingPronunciation] = useState(false);
+  const [showVoiceComplete, setShowVoiceComplete] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
@@ -339,6 +364,7 @@ export default function App() {
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
+  const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const inputFocusAnim = useRef(new Animated.Value(0)).current;
   const sendBurstAnim = useRef(new Animated.Value(0)).current;
   const stageTransition = useRef(new Animated.Value(0)).current;
@@ -784,6 +810,11 @@ export default function App() {
       );
       return;
     }
+    if (completeTimeoutRef.current) {
+      clearTimeout(completeTimeoutRef.current);
+      completeTimeoutRef.current = null;
+    }
+    setShowVoiceComplete(false);
     setVoiceError(null);
     if (soundRef.current) {
       await soundRef.current.stopAsync();
@@ -811,6 +842,7 @@ export default function App() {
     }
     setIsRecording(false);
     setIsUploadingVoice(true);
+    setShowVoiceComplete(false);
     setIsPlayingPronunciation(false);
     setVoiceError(null);
     try {
@@ -864,6 +896,14 @@ export default function App() {
       const data = JSON.parse(raw) as SpeechTurnResponse;
       console.log("Voice Response Payload:", data);
       setVoiceTurn(data);
+      setShowVoiceComplete(true);
+      if (completeTimeoutRef.current) {
+        clearTimeout(completeTimeoutRef.current);
+      }
+      completeTimeoutRef.current = setTimeout(() => {
+        setShowVoiceComplete(false);
+        completeTimeoutRef.current = null;
+      }, 2400);
       const audioPayload = data.audio ?? {
         format: data.audio_mime?.includes("mpeg") ? "mp3" : "wav",
         url: data.audio_url ?? undefined,
@@ -906,6 +946,8 @@ export default function App() {
     ? "processing"
     : isPlayingPronunciation
     ? "speaking"
+    : showVoiceComplete
+    ? "complete"
     : "idle";
 
   useEffect(() => {
@@ -925,7 +967,9 @@ export default function App() {
         ? 1
         : voiceStageState === "processing"
         ? 2
-        : 3;
+        : voiceStageState === "speaking"
+        ? 3
+        : 4;
     Animated.timing(stageTransition, {
       toValue: next,
       duration: 320,
@@ -933,6 +977,14 @@ export default function App() {
       useNativeDriver: true,
     }).start();
   }, [stageTransition, voiceStageState]);
+
+  useEffect(() => {
+    return () => {
+      if (completeTimeoutRef.current) {
+        clearTimeout(completeTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     ambientDriftA.setValue(0);
@@ -1029,15 +1081,12 @@ export default function App() {
 
   const micButton = useMicroButton();
   const sendButton = useMicroButton();
+  const canSend = input.trim().length > 0 && !isSending;
 
   const renderItem = ({ item }: { item: ChatMessage }) => <MessageBubble item={item} />;
 
   if (isLoadingAppLock) {
-    return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#2F6FED" />
-      </SafeAreaView>
-    );
+    return <LoadingState title="Preparing your tutor" subtitle="One quick moment..." />;
   }
 
   if (!isAppUnlocked) {
@@ -1049,11 +1098,7 @@ export default function App() {
   }
 
   if (isBootstrapping) {
-    return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#2F6FED" />
-      </SafeAreaView>
-    );
+    return <LoadingState title="Connecting" subtitle="Setting up your learning session..." />;
   }
 
   if (
@@ -1072,11 +1117,7 @@ export default function App() {
   }
 
   if (isLoadingPreference) {
-    return (
-      <SafeAreaView style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#2F6FED" />
-      </SafeAreaView>
-    );
+    return <LoadingState title="Loading preferences" subtitle="Restoring your tutor mode..." />;
   }
 
   if (!preference) {
@@ -1318,6 +1359,7 @@ export default function App() {
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.messagesContent}
+          ListEmptyComponent={<EmptyChatState />}
           onContentSizeChange={() =>
             listRef.current?.scrollToEnd({ animated: true })
           }
@@ -1330,22 +1372,27 @@ export default function App() {
               {
                 borderColor: inputFocusAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: ["#EADCC9", "#D7C3AA"],
+                  outputRange: ["#E7DAC8", "#CFB79A"],
                 }),
                 shadowOpacity: inputFocusAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: [0.06, 0.16],
+                  outputRange: [0.03, 0.1],
                 }),
                 shadowRadius: inputFocusAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: [4, 10],
+                  outputRange: [5, 12],
                 }),
               },
             ]}
           >
             <TextInput
-              style={styles.input}
-              placeholder="Type in English, 中文, or both"
+              style={[
+                styles.input,
+                Platform.OS === "web" ? ({ outlineWidth: 0 } as never) : null,
+              ]}
+              placeholder="Write your phrase in English or 中文"
+              placeholderTextColor="#A48768"
+              selectionColor="#A06B43"
               value={input}
               onChangeText={setInput}
               editable={!isSending}
@@ -1384,14 +1431,17 @@ export default function App() {
               }}
             >
               <Pressable
-                style={[styles.sendButton, isSending && styles.sendButtonDisabled]}
+                style={[
+                  styles.sendButton,
+                  (!canSend || isSending) && styles.sendButtonDisabled,
+                ]}
                 onPress={sendMessage}
-                disabled={isSending}
+                disabled={!canSend || isSending}
                 {...sendButton.handlers}
               >
-                <Animated.Text
+                <Animated.View
                   style={[
-                    styles.sendButtonText,
+                    styles.sendButtonContent,
                     {
                       transform: [
                         {
@@ -1408,8 +1458,9 @@ export default function App() {
                     },
                   ]}
                 >
-                  {isSending ? "..." : "Send"}
-                </Animated.Text>
+                  <Text style={styles.sendButtonIcon}>➤</Text>
+                  <Text style={styles.sendButtonText}>{isSending ? "Sending" : "Send"}</Text>
+                </Animated.View>
               </Pressable>
             </Animated.View>
           </Animated.View>
@@ -1464,6 +1515,21 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: 24,
+    backgroundColor: "#FDF8F2",
+  },
+  loadingTitle: {
+    marginTop: 14,
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#7C2D12",
+  },
+  loadingSubtitle: {
+    marginTop: 6,
+    fontSize: 13,
+    lineHeight: 18,
+    color: "#9A5A2B",
+    textAlign: "center",
   },
   headerHero: {
     paddingHorizontal: 20,
@@ -1516,25 +1582,61 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   messagesContent: {
+    flexGrow: 1,
     paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 20,
+    gap: 6,
+  },
+  emptyStateCard: {
+    marginTop: 16,
+    backgroundColor: "rgba(255, 253, 249, 0.95)",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#EEDCC7",
+    paddingHorizontal: 16,
     paddingVertical: 16,
+    shadowColor: "#A16207",
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  emptyStateEyebrow: {
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    color: "#B45309",
+    fontWeight: "700",
+  },
+  emptyStateTitle: {
+    marginTop: 6,
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: "700",
+    color: "#7C2D12",
+  },
+  emptyStateBody: {
+    marginTop: 8,
+    fontSize: 13,
+    lineHeight: 20,
+    color: "#9A5A2B",
   },
   messageBubble: {
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    marginBottom: 12,
-    maxWidth: "85%",
+    borderRadius: 18,
+    paddingHorizontal: 15,
+    paddingVertical: 11,
+    marginBottom: 8,
+    maxWidth: "88%",
     borderWidth: 1,
   },
   userBubble: {
-    backgroundColor: "#FFF9F3",
-    borderColor: "#FED7AA",
+    backgroundColor: "#FFF7ED",
+    borderColor: "#FCD9B1",
     alignSelf: "flex-end",
     shadowColor: "#A16207",
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 3 },
     elevation: 1,
   },
   botBubble: {
@@ -1550,7 +1652,8 @@ const styles = StyleSheet.create({
   userText: {
     color: "#7C2D12",
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 21,
+    fontWeight: "500",
   },
   botText: {
     color: "#581C87",
@@ -1570,7 +1673,7 @@ const styles = StyleSheet.create({
   },
   typingText: {
     marginLeft: 6,
-    color: "#6B21A8",
+    color: "#7E22CE",
     fontSize: 12,
     fontWeight: "500",
   },
@@ -1578,26 +1681,32 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-end",
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingTop: 10,
+    paddingBottom: 12,
+    backgroundColor: "#F9F2E8",
     borderTopWidth: 1,
-    borderTopColor: "#F5D0A9",
+    borderTopColor: "#EEDCC7",
   },
   inputShell: {
     flex: 1,
-    backgroundColor: "#FCF8F1",
-    borderRadius: 20,
+    backgroundColor: "#FFFDF9",
+    borderRadius: 22,
     borderWidth: 1,
-    borderColor: "#EADCC9",
-    shadowColor: "#7C5A35",
-    shadowOffset: { width: 0, height: 2 },
+    borderColor: "#E7DAC8",
+    shadowColor: "#8A6648",
+    shadowOffset: { width: 0, height: 3 },
+    shadowRadius: 6,
+    elevation: 1,
   },
   input: {
     width: "100%",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
     fontSize: 14,
     color: "#4A2F1A",
+    lineHeight: 20,
     maxHeight: 120,
+    minHeight: 46,
   },
   micButton: {
     marginLeft: 8,
@@ -1620,26 +1729,41 @@ const styles = StyleSheet.create({
   },
   sendButton: {
     marginLeft: 10,
-    backgroundColor: "#8B5E3C",
+    minHeight: 44,
+    minWidth: 88,
+    backgroundColor: "#8F5A33",
     borderWidth: 1,
-    borderColor: "#7A4E2E",
-    paddingHorizontal: 18,
-    paddingVertical: 11,
-    borderRadius: 14,
+    borderColor: "#7B4925",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 16,
     shadowColor: "#6B4428",
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
+    shadowOpacity: 0.16,
+    shadowRadius: 7,
     shadowOffset: { width: 0, height: 3 },
     elevation: 1,
+    justifyContent: "center",
   },
   sendButtonDisabled: {
-    backgroundColor: "#CBB9A6",
-    borderColor: "#CBB9A6",
+    backgroundColor: "#CCBBA8",
+    borderColor: "#CCBBA8",
+  },
+  sendButtonContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  sendButtonIcon: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    marginTop: -1,
   },
   sendButtonText: {
     color: "#FFFFFF",
-    fontWeight: "600",
+    fontWeight: "700",
     fontSize: 14,
+    letterSpacing: 0.2,
   },
   errorBanner: {
     backgroundColor: "#FEE2E2",

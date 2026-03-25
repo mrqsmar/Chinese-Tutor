@@ -23,14 +23,14 @@ export const parseLearningCard = (text: string) => {
   const taggedEnglish = normalized.find(
     (line) => /^(english|meaning|translation)\s*:/i.test(line)
   );
-  const taggedTip = normalized.find((line) => /^tip\s*:/i.test(line));
+  const taggedTip = normalized.find((line) => /^(tip|example|note)\s*:/i.test(line));
 
   const chineseFromTag = taggedChinese?.replace(/^chinese\s*:/i, "").trim();
   const pinyinFromTag = taggedPinyin?.replace(/^pinyin\s*:/i, "").trim();
   const englishFromTag = taggedEnglish
     ?.replace(/^(english|meaning|translation)\s*:/i, "")
     .trim();
-  const tipFromTag = taggedTip?.replace(/^tip\s*:/i, "").trim();
+  const tipFromTag = taggedTip?.replace(/^(tip|example|note)\s*:/i, "").trim();
 
   const chineseFallback =
     normalized.find((line) => HAN_REGEX.test(line) && line.length <= 40) ?? "";
@@ -90,13 +90,21 @@ const StructuredLearningCard = ({
 
   return (
     <Animated.View style={[styles.card, cardStyle]}>
+      <Text style={styles.sectionLabel}>Chinese</Text>
       <Text style={styles.chinese}>{chinese}</Text>
-      {pinyin ? <Text style={styles.pinyin}>{pinyin}</Text> : null}
-      <Text style={styles.english}>{english}</Text>
+      {pinyin ? (
+        <View style={styles.pinyinChip}>
+          <Text style={styles.pinyin}>{pinyin}</Text>
+        </View>
+      ) : null}
+      <View style={styles.meaningBlock}>
+        <Text style={styles.meaningLabel}>Meaning</Text>
+        <Text style={styles.english}>{english}</Text>
+      </View>
 
       {tip ? (
         <View style={styles.tipBox}>
-          <Text style={styles.tipTitle}>💡 Tip</Text>
+          <Text style={styles.tipTitle}>💡 Example</Text>
           <Text style={styles.tipText}>{tip}</Text>
         </View>
       ) : null}
@@ -109,55 +117,88 @@ const styles = StyleSheet.create({
   card: {
     borderRadius: 18,
     paddingHorizontal: 16,
-    paddingVertical: 16,
-    backgroundColor: "rgba(255, 255, 255, 0.92)",
+    paddingVertical: 18,
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
     borderWidth: 1,
-    borderColor: "rgba(232, 213, 255, 0.95)",
-    shadowColor: "#7E22CE",
-    shadowOpacity: 0.14,
+    borderColor: "rgba(228, 209, 183, 0.95)",
+    shadowColor: "#8B5A2B",
+    shadowOpacity: 0.1,
     shadowOffset: { width: 0, height: 8 },
-    shadowRadius: 16,
+    shadowRadius: 18,
     elevation: 3,
-    gap: 8,
+    gap: 10,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    fontWeight: "700",
+    color: "#A16207",
+    textAlign: "center",
   },
   chinese: {
-    fontSize: 30,
-    lineHeight: 38,
-    fontWeight: "700",
+    fontSize: 38,
+    lineHeight: 44,
+    fontWeight: "800",
     color: "#3B0764",
     textAlign: "center",
+    marginTop: -2,
+  },
+  pinyinChip: {
+    alignSelf: "center",
+    borderRadius: 999,
+    backgroundColor: "#F7EDFF",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: "#E9D5FF",
   },
   pinyin: {
     fontSize: 15,
     lineHeight: 20,
     textAlign: "center",
-    color: "#7E22CE",
+    color: "#6B21A8",
+    fontWeight: "500",
+  },
+  meaningBlock: {
+    borderTopWidth: 1,
+    borderTopColor: "#F1E4CF",
+    paddingTop: 10,
+    alignItems: "center",
+    gap: 4,
+  },
+  meaningLabel: {
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    color: "#A8A29E",
+    fontWeight: "700",
   },
   english: {
     fontSize: 14,
-    lineHeight: 20,
+    lineHeight: 21,
     color: "#6B7280",
     textAlign: "center",
   },
   tipBox: {
-    marginTop: 4,
-    backgroundColor: "#FAF5FF",
+    marginTop: 2,
+    backgroundColor: "#FFF7ED",
     borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: "#E9D5FF",
+    borderColor: "#FED7AA",
   },
   tipTitle: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#6B21A8",
+    color: "#9A3412",
     marginBottom: 4,
   },
   tipText: {
     fontSize: 13,
     lineHeight: 18,
-    color: "#6D28D9",
+    color: "#7C2D12",
   },
 });
 
