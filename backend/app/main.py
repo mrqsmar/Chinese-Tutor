@@ -54,6 +54,7 @@ from app.services.speech_turn import (
     _build_response_parts,
 )
 
+logging.basicConfig(level=logging.INFO)
 add_redaction_filter()
 
 app = FastAPI(title="Chinese Tutor API", version="0.1.0")
@@ -547,19 +548,38 @@ def _normalize_structured_reply(text: str) -> str:
 async def _generate_chat_reply(
     client: httpx.AsyncClient, api_key: str, payload: dict
 ) -> str:
-    response = await client.post(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-        headers={
-            "Content-Type": "application/json",
-        },
-        params={"key": api_key},
-        json=payload,
-    )
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Gemini error: {response.status_code}: {response.text}",
+    endpoint_path = "/v1beta/models/gemini-2.5-flash:generateContent"
+    backoff_seconds = [2, 4, 6]
+    response: httpx.Response | None = None
+    for attempt in range(len(backoff_seconds) + 1):
+        logger.info("Calling Gemini endpoint: %s", endpoint_path)
+        logger.info("Gemini payload preview: %s", str(payload)[:300])
+        response = await client.post(
+            f"https://generativelanguage.googleapis.com{endpoint_path}",
+            headers={
+                "Content-Type": "application/json",
+            },
+            params={"key": api_key},
+            json=payload,
         )
+        logger.info("Gemini response status_code=%s", response.status_code)
+        logger.info("Gemini raw response preview: %s", response.text[:500])
+        if response.status_code == 429 and attempt < len(backoff_seconds):
+            wait_seconds = backoff_seconds[attempt]
+            logger.warning(
+                "Gemini returned 429 (attempt %s/%s); retrying in %ss",
+                attempt + 1,
+                len(backoff_seconds) + 1,
+                wait_seconds,
+            )
+            await asyncio.sleep(wait_seconds)
+            continue
+        response.raise_for_status()
+        break
+
+    if response is None:
+        raise HTTPException(status_code=502, detail="Gemini returned no response.")
+
     data = response.json()
     content = (
         data.get("candidates", [{}])[0]
@@ -612,64 +632,95 @@ async def llm_chat(
         (message.content for message in reversed(request.messages) if message.role == "user"),
         "",
     )
+    logger.info("LLM chat request received")
     logger.info(
-        "LLM chat request received: speaker=%s messages=%s last_user_message=%r",
+        "LLM chat metadata: speaker=%s messages=%s last_user_message=%r",
         request.speaker,
         len(request.messages),
         last_user_message,
     )
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        content = await _generate_chat_reply(client=client, api_key=api_key, payload=payload)
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            logger.info("About to send primary Gemini call")
+            content = await _generate_chat_reply(client=client, api_key=api_key, payload=payload)
+            logger.info("Primary Gemini response preview: %s", content[:300])
 
-        if not _is_structured_beginner_reply(content):
-            repair_payload = {
-                "systemInstruction": {
-                    "parts": [
-                        {
-                            "text": (
-                                "Rewrite into strict beginner Chinese tutoring format. "
-                                "Return only these lines: "
-                                "Chinese: ...\n"
-                                "Pinyin: ...\n"
-                                "Meaning: ...\n"
-                                "Notes: ... (optional)\n"
-                                "If user input is an English sentence (for example: "
-                                "'Can I have 3 orders of siu mai?', "
-                                "'I'd like 2 waters', "
-                                "'Where is the bathroom?'), directly translate it into Chinese. "
-                                "Do not ask the user to provide an English sentence. "
-                                "Rules: include concrete Simplified Chinese answer, tone-marked pinyin, and plain English meaning. "
-                                "No vague text."
-                            )
-                        }
-                    ]
-                },
-                "generationConfig": {"maxOutputTokens": 160, "temperature": 0.1},
-                "contents": [
-                    {
-                        "role": "user",
+            if not _is_structured_beginner_reply(content):
+                logger.warning("Primary Gemini response is not structured beginner format.")
+                repair_payload = {
+                    "systemInstruction": {
                         "parts": [
                             {
                                 "text": (
-                                    f"User question: {last_user_message}\n"
-                                    f"Draft answer to fix:\n{content}"
+                                    "Rewrite into strict beginner Chinese tutoring format. "
+                                    "Return only these lines: "
+                                    "Chinese: ...\n"
+                                    "Pinyin: ...\n"
+                                    "Meaning: ...\n"
+                                    "Notes: ... (optional)\n"
+                                    "If user input is an English sentence (for example: "
+                                    "'Can I have 3 orders of siu mai?', "
+                                    "'I'd like 2 waters', "
+                                    "'Where is the bathroom?'), directly translate it into Chinese. "
+                                    "Do not ask the user to provide an English sentence. "
+                                    "Rules: include concrete Simplified Chinese answer, tone-marked pinyin, and plain English meaning. "
+                                    "No vague text."
                                 )
                             }
-                        ],
-                    }
-                ],
-            }
-            repaired = await _generate_chat_reply(
-                client=client, api_key=api_key, payload=repair_payload
+                        ]
+                    },
+                    "generationConfig": {"maxOutputTokens": 160, "temperature": 0.1},
+                    "contents": [
+                        {
+                            "role": "user",
+                            "parts": [
+                                {
+                                    "text": (
+                                        f"User question: {last_user_message}\n"
+                                        f"Draft answer to fix:\n{content}"
+                                    )
+                                }
+                            ],
+                        }
+                    ],
+                }
+                logger.warning("Triggering repair pass for non-structured response.")
+                logger.info("About to send repair Gemini call")
+                repaired = await _generate_chat_reply(
+                    client=client, api_key=api_key, payload=repair_payload
+                )
+                logger.info("Repair Gemini call completed")
+                logger.info("Repaired Gemini response preview: %s", repaired[:300])
+                content = repaired if _is_structured_beginner_reply(repaired) else (
+                    "Chinese: 抱歉，我刚才格式化失败了。请再试一次，我会直接帮你翻译这句英文。\n"
+                    "Pinyin: Bàoqiàn, wǒ gāngcái géshìhuà shībài le. Qǐng zài shì yí cì, wǒ huì zhíjiē bāng nǐ fānyì zhè jù Yīngwén.\n"
+                    "Meaning: Sorry, formatting failed just now. Please try once more and I will translate your English sentence directly."
+                )
+    except httpx.HTTPStatusError as exc:
+        body_preview = exc.response.text[:1000] if exc.response is not None else ""
+        status_code = exc.response.status_code if exc.response is not None else 502
+        logger.error(
+            "Gemini HTTP status error: status_code=%s response_body=%s",
+            status_code,
+            body_preview,
+        )
+        if status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="Gemini rate limit exceeded. Please wait a few seconds and try again.",
             )
-            content = repaired if _is_structured_beginner_reply(repaired) else (
-                "Chinese: 抱歉，我刚才格式化失败了。请再试一次，我会直接帮你翻译这句英文。\n"
-                "Pinyin: Bàoqiàn, wǒ gāngcái géshìhuà shībài le. Qǐng zài shì yí cì, wǒ huì zhíjiē bāng nǐ fānyì zhè jù Yīngwén.\n"
-                "Meaning: Sorry, formatting failed just now. Please try once more and I will translate your English sentence directly."
-            )
+        raise HTTPException(status_code=status_code, detail=f"Gemini error: {status_code}: {body_preview}")
+    except httpx.RequestError as exc:
+        logger.error("Gemini request/network error: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Gemini request error: {exc}")
+    except Exception:
+        logger.exception("Unhandled error in /api/chat")
+        raise
 
-    return LLMChatResponse(reply=_normalize_structured_reply(content))
+    normalized = _normalize_structured_reply(content)
+    logger.info("Normalized final response: %s", normalized)
+    return LLMChatResponse(reply=normalized)
 
 
 async def _speech_turn_handler(
