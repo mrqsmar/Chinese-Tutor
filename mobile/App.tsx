@@ -55,11 +55,17 @@ const wait = (ms: number) =>
 type SpeakerPreference = "english" | "chinese";
 type MicPermissionState = "undetermined" | "granted" | "denied";
 type VoiceOption = "warm" | "bright" | "deep";
-type AmbientPalette = {
+type ModeTheme = {
   gradientTop: string;
   gradientBottom: string;
   blobPrimary: string;
   blobSecondary: string;
+  headerSurface: string;
+  headerGlow: string;
+  headerAccentTrack: string;
+  headerAccentLine: string;
+  surfaceTint: string;
+  surfaceBorder: string;
 };
 
 type SpeechTurnAudio = {
@@ -219,24 +225,42 @@ const useMicroButton = () => {
   };
 };
 
-const AMBIENT_PALETTES: Record<VoiceOption, AmbientPalette> = {
+const MODE_THEMES: Record<VoiceOption, ModeTheme> = {
   warm: {
     gradientTop: "#FFF8EE",
     gradientBottom: "#FFEFE3",
     blobPrimary: "rgba(251, 146, 120, 0.24)",
     blobSecondary: "rgba(253, 186, 116, 0.2)",
+    headerSurface: "rgba(255, 249, 239, 0.68)",
+    headerGlow: "rgba(251, 191, 36, 0.12)",
+    headerAccentTrack: "rgba(194, 65, 12, 0.1)",
+    headerAccentLine: "rgba(234, 88, 12, 0.45)",
+    surfaceTint: "#FFEDD5",
+    surfaceBorder: "#FDBA74",
   },
   bright: {
     gradientTop: "#F7FCFF",
     gradientBottom: "#EAF6FF",
     blobPrimary: "rgba(125, 211, 252, 0.2)",
     blobSecondary: "rgba(103, 232, 249, 0.18)",
+    headerSurface: "rgba(245, 252, 255, 0.7)",
+    headerGlow: "rgba(56, 189, 248, 0.14)",
+    headerAccentTrack: "rgba(14, 165, 233, 0.12)",
+    headerAccentLine: "rgba(2, 132, 199, 0.42)",
+    surfaceTint: "#ECFEFF",
+    surfaceBorder: "#A5F3FC",
   },
   deep: {
     gradientTop: "#F5F0FF",
     gradientBottom: "#E7E2F4",
     blobPrimary: "rgba(109, 40, 217, 0.18)",
     blobSecondary: "rgba(49, 46, 129, 0.18)",
+    headerSurface: "rgba(243, 239, 252, 0.72)",
+    headerGlow: "rgba(99, 102, 241, 0.14)",
+    headerAccentTrack: "rgba(79, 70, 229, 0.12)",
+    headerAccentLine: "rgba(67, 56, 202, 0.44)",
+    surfaceTint: "#EFE7FF",
+    surfaceBorder: "#C4B5FD",
   },
 };
 
@@ -314,6 +338,9 @@ export default function App() {
   const ambientDriftA = useRef(new Animated.Value(0)).current;
   const ambientDriftB = useRef(new Animated.Value(0)).current;
   const headerEntrance = useRef(new Animated.Value(0)).current;
+  const themeProgress = useRef(new Animated.Value(1)).current;
+  const [themeFrom, setThemeFrom] = useState<VoiceOption>(selectedVoice);
+  const [themeTo, setThemeTo] = useState<VoiceOption>(selectedVoice);
 
   useEffect(() => {
     logApiBaseUrl("App start");
@@ -473,10 +500,28 @@ export default function App() {
     return "";
   }, [preference]);
 
-  const ambientPalette = useMemo(
-    () => AMBIENT_PALETTES[selectedVoice],
-    [selectedVoice]
-  );
+  const interpolatedTheme = useMemo(() => {
+    const fromTheme = MODE_THEMES[themeFrom];
+    const toTheme = MODE_THEMES[themeTo];
+    const interpolateColor = (key: keyof ModeTheme) =>
+      themeProgress.interpolate({
+        inputRange: [0, 1],
+        outputRange: [fromTheme[key], toTheme[key]],
+      });
+
+    return {
+      gradientTop: interpolateColor("gradientTop"),
+      gradientBottom: interpolateColor("gradientBottom"),
+      blobPrimary: interpolateColor("blobPrimary"),
+      blobSecondary: interpolateColor("blobSecondary"),
+      headerSurface: interpolateColor("headerSurface"),
+      headerGlow: interpolateColor("headerGlow"),
+      headerAccentTrack: interpolateColor("headerAccentTrack"),
+      headerAccentLine: interpolateColor("headerAccentLine"),
+      surfaceTint: interpolateColor("surfaceTint"),
+      surfaceBorder: interpolateColor("surfaceBorder"),
+    };
+  }, [themeFrom, themeProgress, themeTo]);
 
   useEffect(() => {
     if (!preference || messages.length > 0) {
@@ -914,6 +959,21 @@ export default function App() {
   }, [ambientDriftA, ambientDriftB]);
 
   useEffect(() => {
+    if (selectedVoice === themeTo) {
+      return;
+    }
+    setThemeFrom(themeTo);
+    setThemeTo(selectedVoice);
+    themeProgress.setValue(0);
+    Animated.timing(themeProgress, {
+      toValue: 1,
+      duration: 900,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [selectedVoice, themeProgress, themeTo]);
+
+  useEffect(() => {
     Animated.timing(headerEntrance, {
       toValue: 1,
       duration: 680,
@@ -1003,23 +1063,23 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <View pointerEvents="none" style={styles.ambientBackground}>
-        <View
+        <Animated.View
           style={[
             styles.ambientGradientLayer,
-            { backgroundColor: ambientPalette.gradientTop },
+            { backgroundColor: interpolatedTheme.gradientTop },
           ]}
         />
-        <View
+        <Animated.View
           style={[
             styles.ambientGradientLayerBottom,
-            { backgroundColor: ambientPalette.gradientBottom },
+            { backgroundColor: interpolatedTheme.gradientBottom },
           ]}
         />
         <Animated.View
           style={[
             styles.ambientBlobPrimary,
             {
-              backgroundColor: ambientPalette.blobPrimary,
+              backgroundColor: interpolatedTheme.blobPrimary,
               transform: [
                 {
                   translateX: ambientDriftA.interpolate({
@@ -1047,7 +1107,7 @@ export default function App() {
           style={[
             styles.ambientBlobSecondary,
             {
-              backgroundColor: ambientPalette.blobSecondary,
+              backgroundColor: interpolatedTheme.blobSecondary,
               transform: [
                 {
                   translateX: ambientDriftB.interpolate({
@@ -1081,6 +1141,7 @@ export default function App() {
           style={[
             styles.headerHero,
             {
+              backgroundColor: interpolatedTheme.headerSurface,
               opacity: headerEntrance.interpolate({
                 inputRange: [0, 1],
                 outputRange: [0, 1],
@@ -1096,7 +1157,12 @@ export default function App() {
             },
           ]}
         >
-          <View style={styles.headerAccentGlow} />
+          <Animated.View
+            style={[
+              styles.headerAccentGlow,
+              { backgroundColor: interpolatedTheme.headerGlow },
+            ]}
+          />
           <View style={styles.headerTitleRow}>
             <Text
               style={styles.title}
@@ -1111,9 +1177,19 @@ export default function App() {
             )}
           </View>
           <Text style={styles.subtitle}>{systemHint}</Text>
-          <View style={styles.headerAccentTrack}>
-            <View style={styles.headerAccentLine} />
-          </View>
+          <Animated.View
+            style={[
+              styles.headerAccentTrack,
+              { backgroundColor: interpolatedTheme.headerAccentTrack },
+            ]}
+          >
+            <Animated.View
+              style={[
+                styles.headerAccentLine,
+                { backgroundColor: interpolatedTheme.headerAccentLine },
+              ]}
+            />
+          </Animated.View>
         </Animated.View>
 
         {error ? (
@@ -1122,7 +1198,15 @@ export default function App() {
           </View>
         ) : null}
 
-        <View style={styles.voiceCard}>
+        <Animated.View
+          style={[
+            styles.voiceCard,
+            {
+              backgroundColor: interpolatedTheme.surfaceTint,
+              borderColor: interpolatedTheme.surfaceBorder,
+            },
+          ]}
+        >
           <Text style={styles.voiceTitle}>Voice Turn</Text>
           <Text style={styles.voiceSubtitle}>
             Hold the button, speak, and release to translate + hear it back.
@@ -1203,7 +1287,7 @@ export default function App() {
               ) : null}
             </View>
           ) : null}
-        </View>
+        </Animated.View>
 
         <FlatList
           ref={listRef}
@@ -1363,7 +1447,6 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(245, 208, 169, 0.55)",
-    backgroundColor: "rgba(255, 249, 239, 0.68)",
   },
   headerTitleRow: {
     flexDirection: "row",
@@ -1377,7 +1460,6 @@ const styles = StyleSheet.create({
     borderRadius: 190,
     right: -70,
     top: -90,
-    backgroundColor: "rgba(251, 191, 36, 0.12)",
   },
   title: {
     fontSize: 30,
@@ -1397,14 +1479,12 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 2,
     borderRadius: 2,
-    backgroundColor: "rgba(194, 65, 12, 0.1)",
     overflow: "hidden",
   },
   headerAccentLine: {
     width: "42%",
     height: "100%",
     borderRadius: 2,
-    backgroundColor: "rgba(234, 88, 12, 0.45)",
   },
   logoutText: {
     fontSize: 12,
@@ -1544,9 +1624,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 16,
     borderRadius: 16,
-    backgroundColor: "#FFEDD5",
     borderWidth: 1,
-    borderColor: "#FDBA74",
   },
   voiceTitle: {
     fontSize: 16,
