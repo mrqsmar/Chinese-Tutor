@@ -9,11 +9,11 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
 
@@ -175,12 +175,53 @@ const MessageBubble = ({ item }: { item: ChatMessage }) => {
   );
 };
 
+const useMicroButton = () => {
+  const scale = useRef(new Animated.Value(1)).current;
+  const brightness = useRef(new Animated.Value(0)).current;
+
+  const animateTo = useCallback((toScale: number, toBrightness: number) => {
+    Animated.parallel([
+      Animated.timing(scale, {
+        toValue: toScale,
+        duration: 140,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(brightness, {
+        toValue: toBrightness,
+        duration: 160,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: false,
+      }),
+    ]).start();
+  }, [brightness, scale]);
+
+  return {
+    style: {
+      transform: [{ scale }],
+      opacity: brightness.interpolate({
+        inputRange: [0, 1],
+        outputRange: [1, 0.92],
+      }),
+    },
+    handlers: {
+      onPressIn: () => animateTo(0.97, 1),
+      onPressOut: () => animateTo(1, 0),
+      onHoverIn: () => animateTo(1.02, 0),
+      onHoverOut: () => animateTo(1, 0),
+    },
+  };
+};
+
 
 const Onboarding = ({
   onSelect,
 }: {
   onSelect: (preference: SpeakerPreference) => void;
 }) => {
+  const englishButton = useMicroButton();
+  const chineseButton = useMicroButton();
+
   return (
     <SafeAreaView style={styles.onboardingContainer}>
       <View style={styles.onboardingCard}>
@@ -189,18 +230,24 @@ const Onboarding = ({
           Are you an English speaker or Chinese speaker?
         </Text>
         <View style={styles.onboardingButtons}>
-          <TouchableOpacity
-            style={styles.onboardingButton}
-            onPress={() => onSelect("english")}
-          >
-            <Text style={styles.onboardingButtonText}>English Speaker</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.onboardingButton, styles.onboardingButtonSecondary]}
-            onPress={() => onSelect("chinese")}
-          >
-            <Text style={styles.onboardingButtonText}>Chinese Speaker</Text>
-          </TouchableOpacity>
+          <Animated.View style={englishButton.style}>
+            <Pressable
+              style={styles.onboardingButton}
+              {...englishButton.handlers}
+              onPress={() => onSelect("english")}
+            >
+              <Text style={styles.onboardingButtonText}>English Speaker</Text>
+            </Pressable>
+          </Animated.View>
+          <Animated.View style={chineseButton.style}>
+            <Pressable
+              style={[styles.onboardingButton, styles.onboardingButtonSecondary]}
+              {...chineseButton.handlers}
+              onPress={() => onSelect("chinese")}
+            >
+              <Text style={styles.onboardingButtonText}>Chinese Speaker</Text>
+            </Pressable>
+          </Animated.View>
         </View>
       </View>
     </SafeAreaView>
@@ -230,9 +277,13 @@ export default function App() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
+  const [isInputFocused, setIsInputFocused] = useState(false);
   const listRef = useRef<FlatList<ChatMessage>>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
+  const inputFocusAnim = useRef(new Animated.Value(0)).current;
+  const sendBurstAnim = useRef(new Animated.Value(0)).current;
+  const stageTransition = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     logApiBaseUrl("App start");
@@ -451,6 +502,21 @@ export default function App() {
     setInput("");
     setIsSending(true);
     setError(null);
+    sendBurstAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(sendBurstAnim, {
+        toValue: 1,
+        duration: 180,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(sendBurstAnim, {
+        toValue: 0,
+        duration: 220,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+    ]).start();
 
     try {
       logApiBaseUrl("Chat request");
@@ -739,6 +805,31 @@ export default function App() {
     ? "speaking"
     : "idle";
 
+  useEffect(() => {
+    Animated.timing(inputFocusAnim, {
+      toValue: isInputFocused ? 1 : 0,
+      duration: 220,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start();
+  }, [inputFocusAnim, isInputFocused]);
+
+  useEffect(() => {
+    const next =
+      voiceStageState === "idle"
+        ? 0
+        : voiceStageState === "listening"
+        ? 1
+        : voiceStageState === "processing"
+        ? 2
+        : 3;
+    Animated.timing(stageTransition, {
+      toValue: next,
+      duration: 320,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [stageTransition, voiceStageState]);
 
   const handleMicPress = async () => {
     if (isUploadingVoice) {
@@ -761,6 +852,9 @@ export default function App() {
       }
     };
   }, []);
+
+  const micButton = useMicroButton();
+  const sendButton = useMicroButton();
 
   const renderItem = ({ item }: { item: ChatMessage }) => <MessageBubble item={item} />;
 
@@ -832,9 +926,9 @@ export default function App() {
           <View style={styles.headerRow}>
             <Text style={styles.subtitle}>{systemHint}</Text>
             {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
-              <TouchableOpacity onPress={handleLogout}>
+              <Pressable onPress={handleLogout}>
                 <Text style={styles.logoutText}>Logout</Text>
-              </TouchableOpacity>
+              </Pressable>
             )}
           </View>
         </View>
@@ -864,7 +958,7 @@ export default function App() {
               { key: "bright", label: "Bright" },
               { key: "deep", label: "Deep" },
             ].map((option) => (
-              <TouchableOpacity
+              <Pressable
                 key={option.key}
                 style={[
                   styles.voiceOptionPill,
@@ -881,21 +975,38 @@ export default function App() {
                 >
                   {option.label}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
 
-          <VoiceStage
-            state={voiceStageState}
-            mode={selectedVoice}
-            onPressIn={() => {
-              void startRecording();
+          <Animated.View
+            style={{
+              opacity: stageTransition.interpolate({
+                inputRange: [0, 1, 2, 3],
+                outputRange: [1, 0.96, 0.95, 0.98],
+              }),
+              transform: [
+                {
+                  translateY: stageTransition.interpolate({
+                    inputRange: [0, 1, 2, 3],
+                    outputRange: [0, -1, -2, -1],
+                  }),
+                },
+              ],
             }}
-            onPressOut={() => {
-              void stopRecording();
-            }}
-            disabled={isUploadingVoice || micPermission === "denied"}
-          />
+          >
+            <VoiceStage
+              state={voiceStageState}
+              mode={selectedVoice}
+              onPressIn={() => {
+                void startRecording();
+              }}
+              onPressOut={() => {
+                void stopRecording();
+              }}
+              disabled={isUploadingVoice || micPermission === "denied"}
+            />
+          </Animated.View>
           {voiceTurn ? (
             <View style={styles.voiceResult}>
               <Text style={styles.voiceLabel}>Transcript</Text>
@@ -923,35 +1034,94 @@ export default function App() {
         />
 
         <View style={styles.inputBar}>
-          <TextInput
-            style={styles.input}
-            placeholder="Type in English, 中文, or both"
-            value={input}
-            onChangeText={setInput}
-            editable={!isSending}
-            multiline
-          />
-          <TouchableOpacity
+          <Animated.View
             style={[
-              styles.micButton,
-              isRecording && styles.micButtonActive,
-              (isUploadingVoice || micPermission === "denied") &&
-                styles.micButtonDisabled,
+              styles.inputShell,
+              {
+                borderColor: inputFocusAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: ["#FED7AA", "#FDBA74"],
+                }),
+                shadowOpacity: inputFocusAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 0.2],
+                }),
+                shadowRadius: inputFocusAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0, 12],
+                }),
+              },
             ]}
-            onPress={handleMicPress}
-            disabled={isUploadingVoice || micPermission === "denied"}
           >
-            <Text style={styles.micButtonText}>{isRecording ? "⏹" : "🎤"}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.sendButton, isSending && styles.sendButtonDisabled]}
-            onPress={sendMessage}
-            disabled={isSending}
-          >
-            <Text style={styles.sendButtonText}>
-              {isSending ? "..." : "Send"}
-            </Text>
-          </TouchableOpacity>
+            <TextInput
+              style={styles.input}
+              placeholder="Type in English, 中文, or both"
+              value={input}
+              onChangeText={setInput}
+              editable={!isSending}
+              multiline
+              onFocus={() => setIsInputFocused(true)}
+              onBlur={() => setIsInputFocused(false)}
+            />
+          </Animated.View>
+          <Animated.View style={micButton.style}>
+            <Pressable
+              style={[
+                styles.micButton,
+                isRecording && styles.micButtonActive,
+                (isUploadingVoice || micPermission === "denied") &&
+                  styles.micButtonDisabled,
+              ]}
+              onPress={handleMicPress}
+              disabled={isUploadingVoice || micPermission === "denied"}
+              {...micButton.handlers}
+            >
+              <Text style={styles.micButtonText}>{isRecording ? "⏹" : "🎤"}</Text>
+            </Pressable>
+          </Animated.View>
+          <Animated.View style={sendButton.style}>
+            <Animated.View
+              style={{
+                transform: [
+                  {
+                    translateX: sendBurstAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [0, 2],
+                    }),
+                  },
+                ],
+              }}
+            >
+              <Pressable
+                style={[styles.sendButton, isSending && styles.sendButtonDisabled]}
+                onPress={sendMessage}
+                disabled={isSending}
+                {...sendButton.handlers}
+              >
+                <Animated.Text
+                  style={[
+                    styles.sendButtonText,
+                    {
+                      transform: [
+                        {
+                          translateX: sendBurstAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0, 5],
+                          }),
+                        },
+                      ],
+                      opacity: sendBurstAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [1, 0.88],
+                      }),
+                    },
+                  ]}
+                >
+                  {isSending ? "..." : "Send"}
+                </Animated.Text>
+              </Pressable>
+            </Animated.View>
+          </Animated.View>
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -1066,10 +1236,17 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#F5D0A9",
   },
-  input: {
+  inputShell: {
     flex: 1,
     backgroundColor: "#FFF1DC",
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#FED7AA",
+    shadowColor: "#F97316",
+    shadowOffset: { width: 0, height: 0 },
+  },
+  input: {
+    width: "100%",
     paddingHorizontal: 12,
     paddingVertical: 8,
     fontSize: 14,
