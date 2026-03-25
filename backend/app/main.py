@@ -460,7 +460,12 @@ def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
         "Keep replies concise, conversational, and tutor-like. "
         "Keep replies to a maximum of 4 lines. "
         "If more info is needed, ask ONE short follow-up question and wait. "
-        "Always include: Chinese, Pinyin, and a short English explanation. "
+        "Always include the actual learning output, never vague placeholders. "
+        "Use this exact structure for teaching replies: "
+        "Chinese: <hanzi output> | "
+        "Pinyin: <tone-marked pinyin> | "
+        "English: <meaning/translation> | "
+        "Example (optional): <one short usage example>. "
         "Do NOT include character breakdowns. "
         "Do NOT include multiple examples or long explanations unless the user asks for more detail. "
         "Provide only one example or tip at a time; do not give multiple examples or tips. "
@@ -471,7 +476,7 @@ def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
     if speaker == "english":
         return (
             base
-            + " Explain in English, include Chinese examples, and provide pinyin for Chinese."
+            + " Explain in English. Keep pinyin tone-marked (e.g., nǐ hǎo)."
         )
 
     return (
@@ -480,7 +485,12 @@ def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
         "保持简洁、对话式、像导师一样。"
         "每次回复最多4行。"
         "如果需要更多信息，只问一个简短的追问并等待。"
-        "务必包含：中文、拼音、简短英文解释。"
+        "务必给出实际学习内容，不能用“这样说”但不展示答案。"
+        "请用固定格式："
+        "Chinese: <汉字答案>；"
+        "Pinyin: <带声调拼音>；"
+        "English: <英文释义>；"
+        "Example (optional): <一个简短例句>。"
         "不要做汉字拆解。"
         "除非用户要求更多细节，否则不要给多个例子或长解释。"
         "一次只给一个例子或提示，不要给多个。"
