@@ -4,9 +4,11 @@ import * as FileSystem from "expo-file-system/legacy";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  NativeSyntheticEvent,
   Animated,
   Easing,
   FlatList,
+  TextInputKeyPressEventData,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -640,6 +642,22 @@ export default function App() {
     } finally {
       setIsSending(false);
     }
+  };
+
+  const handleInputKeyPress = (
+    event: NativeSyntheticEvent<TextInputKeyPressEventData>
+  ) => {
+    if (event.nativeEvent.key !== "Enter") {
+      return;
+    }
+    const nativeEvent = event.nativeEvent as TextInputKeyPressEventData & {
+      shiftKey?: boolean;
+    };
+    if (nativeEvent.shiftKey) {
+      return;
+    }
+    (event as { preventDefault?: () => void }).preventDefault?.();
+    void sendMessage();
   };
 
   const ensureMicPermission = async () => {
@@ -1312,15 +1330,15 @@ export default function App() {
               {
                 borderColor: inputFocusAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: ["#FED7AA", "#FDBA74"],
+                  outputRange: ["#EADCC9", "#D7C3AA"],
                 }),
                 shadowOpacity: inputFocusAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: [0, 0.2],
+                  outputRange: [0.06, 0.16],
                 }),
                 shadowRadius: inputFocusAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: [0, 12],
+                  outputRange: [4, 10],
                 }),
               },
             ]}
@@ -1332,6 +1350,7 @@ export default function App() {
               onChangeText={setInput}
               editable={!isSending}
               multiline
+              onKeyPress={handleInputKeyPress}
               onFocus={() => setIsInputFocused(true)}
               onBlur={() => setIsInputFocused(false)}
             />
@@ -1565,18 +1584,19 @@ const styles = StyleSheet.create({
   },
   inputShell: {
     flex: 1,
-    backgroundColor: "#FFF1DC",
-    borderRadius: 16,
+    backgroundColor: "#FCF8F1",
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: "#FED7AA",
-    shadowColor: "#F97316",
-    shadowOffset: { width: 0, height: 0 },
+    borderColor: "#EADCC9",
+    shadowColor: "#7C5A35",
+    shadowOffset: { width: 0, height: 2 },
   },
   input: {
     width: "100%",
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     fontSize: 14,
+    color: "#4A2F1A",
     maxHeight: 120,
   },
   micButton: {
@@ -1600,13 +1620,21 @@ const styles = StyleSheet.create({
   },
   sendButton: {
     marginLeft: 10,
-    backgroundColor: "#B91C1C",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 16,
+    backgroundColor: "#8B5E3C",
+    borderWidth: 1,
+    borderColor: "#7A4E2E",
+    paddingHorizontal: 18,
+    paddingVertical: 11,
+    borderRadius: 14,
+    shadowColor: "#6B4428",
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+    elevation: 1,
   },
   sendButtonDisabled: {
-    backgroundColor: "#FCA5A5",
+    backgroundColor: "#CBB9A6",
+    borderColor: "#CBB9A6",
   },
   sendButtonText: {
     color: "#FFFFFF",
