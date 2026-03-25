@@ -20,6 +20,9 @@ import {
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
 import LockScreen from "./src/components/LockScreen";
+import StructuredLearningCard, {
+  parseLearningCard,
+} from "./src/components/StructuredLearningCard";
 import VoiceStage, { type VoiceStageState } from "./src/components/VoiceStage";
 import {
   clearUnlock,
@@ -178,6 +181,8 @@ const MessageBubble = ({ item }: { item: ChatMessage }) => {
     >
       {item.isTyping ? (
         <TypingIndicator />
+      ) : item.role === "assistant" ? (
+        <StructuredLearningCard {...parseLearningCard(item.text)} />
       ) : (
         <Text style={item.role === "user" ? styles.userText : styles.botText}>
           {item.text}
@@ -1514,14 +1519,14 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   botBubble: {
-    backgroundColor: "#FFF5FF",
-    borderColor: "#E9D5FF",
+    backgroundColor: "transparent",
+    borderColor: "transparent",
     alignSelf: "flex-start",
-    shadowColor: "#A855F7",
-    shadowOpacity: 0.16,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 2,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderWidth: 0,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   userText: {
     color: "#7C2D12",
