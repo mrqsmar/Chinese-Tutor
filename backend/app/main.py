@@ -9,6 +9,7 @@ import asyncio
 import logging
 import time
 import wave
+import re
 
 import os
 from typing import Literal
@@ -458,14 +459,16 @@ def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
         "If the user asks about unrelated topics (politics, health, coding, math, etc.), "
         "politely refuse and redirect them to a language-learning alternative. "
         "Keep replies concise, conversational, and tutor-like. "
-        "Keep replies to a maximum of 4 lines. "
+        "Keep replies to a maximum of 5 lines. "
         "If more info is needed, ask ONE short follow-up question and wait. "
         "Always include the actual learning output, never vague placeholders. "
-        "Use this exact structure for teaching replies: "
-        "Chinese: <hanzi output> | "
-        "Pinyin: <tone-marked pinyin> | "
-        "English: <meaning/translation> | "
-        "Example (optional): <one short usage example>. "
+        "Never reply with only meta teaching text (e.g., 'Here is how to say it') without the answer itself. "
+        "Use Simplified Chinese only. "
+        "For beginner tutoring, output this exact labeled format on separate lines: "
+        "Chinese: <hanzi output> "
+        "Pinyin: <tone-marked pinyin> "
+        "Meaning: <plain English meaning/translation> "
+        "Example (optional): <one short beginner example>. "
         "Do NOT include character breakdowns. "
         "Do NOT include multiple examples or long explanations unless the user asks for more detail. "
         "Provide only one example or tip at a time; do not give multiple examples or tips. "
@@ -483,13 +486,15 @@ def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
         "你是一位中文导师。你的任务仅限于中文↔英文学习：翻译、词汇、语法、发音（拼音）与例句。"
         "如果用户问与语言学习无关的话题（政治、健康、编程、数学等），请礼貌拒绝，并引导回到语言学习任务（例如翻译一句话、解释一个短语）。"
         "保持简洁、对话式、像导师一样。"
-        "每次回复最多4行。"
+        "每次回复最多5行。"
         "如果需要更多信息，只问一个简短的追问并等待。"
         "务必给出实际学习内容，不能用“这样说”但不展示答案。"
+        "禁止只给泛泛教学话术，必须给出具体中文答案。"
+        "只使用简体中文。"
         "请用固定格式："
-        "Chinese: <汉字答案>；"
-        "Pinyin: <带声调拼音>；"
-        "English: <英文释义>；"
+        "Chinese: <汉字答案>"
+        "Pinyin: <带声调拼音>"
+        "Meaning: <英文释义>"
         "Example (optional): <一个简短例句>。"
         "不要做汉字拆解。"
         "除非用户要求更多细节，否则不要给多个例子或长解释。"
@@ -497,6 +502,72 @@ def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
         "把教学拆成多轮对话，每次只讲一个点。"
         "大多数回复以简短可选的引导结尾（例如“要例句吗？/要练习吗？/要更口语的版本吗？”）。"
     )
+
+
+HAN_REGEX = re.compile(r"[\u3400-\u9FFF]")
+TONE_MARK_REGEX = re.compile(r"[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]", re.IGNORECASE)
+
+
+def _extract_labeled_value(text: str, label: str) -> str:
+    match = re.search(rf"(?im)^\s*(?:{label})\s*:\s*(.+?)\s*$", text)
+    return (match.group(1).strip() if match else "")
+
+
+def _is_structured_beginner_reply(text: str) -> bool:
+    chinese = _extract_labeled_value(text, "chinese")
+    pinyin = _extract_labeled_value(text, "pinyin")
+    meaning = _extract_labeled_value(text, "meaning|english|translation")
+    return bool(
+        chinese
+        and pinyin
+        and meaning
+        and HAN_REGEX.search(chinese)
+        and TONE_MARK_REGEX.search(pinyin)
+    )
+
+
+def _normalize_structured_reply(text: str) -> str:
+    chinese = _extract_labeled_value(text, "chinese")
+    pinyin = _extract_labeled_value(text, "pinyin")
+    meaning = _extract_labeled_value(text, "meaning|english|translation")
+    example = _extract_labeled_value(text, "example")
+
+    lines = [
+        f"Chinese: {chinese}",
+        f"Pinyin: {pinyin}",
+        f"Meaning: {meaning}",
+    ]
+    if example:
+        lines.append(f"Example: {example}")
+    return "\n".join(lines)
+
+
+async def _generate_chat_reply(
+    client: httpx.AsyncClient, api_key: str, payload: dict
+) -> str:
+    response = await client.post(
+        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
+        headers={
+            "Content-Type": "application/json",
+        },
+        params={"key": api_key},
+        json=payload,
+    )
+    if response.status_code != 200:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Gemini error: {response.status_code}: {response.text}",
+        )
+    data = response.json()
+    content = (
+        data.get("candidates", [{}])[0]
+        .get("content", {})
+        .get("parts", [{}])[0]
+        .get("text")
+    )
+    if not content:
+        raise HTTPException(status_code=502, detail="Gemini returned no content.")
+    return content
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -535,33 +606,57 @@ async def llm_chat(
         ],
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.post(
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent",
-            headers={
-                "Content-Type": "application/json",
-            },
-            params={"key": api_key},
-            json=payload,
-        )
-
-    if response.status_code != 200:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Gemini error: {response.status_code}: {response.text}",
-        )
-
-    data = response.json()
-    content = (
-        data.get("candidates", [{}])[0]
-        .get("content", {})
-        .get("parts", [{}])[0]
-        .get("text")
+    last_user_message = next(
+        (message.content for message in reversed(request.messages) if message.role == "user"),
+        "",
     )
-    if not content:
-        raise HTTPException(status_code=502, detail="Gemini returned no content.")
 
-    return LLMChatResponse(reply=content)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        content = await _generate_chat_reply(client=client, api_key=api_key, payload=payload)
+
+        if not _is_structured_beginner_reply(content):
+            repair_payload = {
+                "systemInstruction": {
+                    "parts": [
+                        {
+                            "text": (
+                                "Rewrite into strict beginner Chinese tutoring format. "
+                                "Return only these lines: "
+                                "Chinese: ...\n"
+                                "Pinyin: ...\n"
+                                "Meaning: ...\n"
+                                "Example: ... (optional)\n"
+                                "Rules: include concrete Simplified Chinese answer, tone-marked pinyin, and plain English meaning. "
+                                "No vague text."
+                            )
+                        }
+                    ]
+                },
+                "generationConfig": {"maxOutputTokens": 160, "temperature": 0.1},
+                "contents": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": (
+                                    f"User question: {last_user_message}\n"
+                                    f"Draft answer to fix:\n{content}"
+                                )
+                            }
+                        ],
+                    }
+                ],
+            }
+            repaired = await _generate_chat_reply(
+                client=client, api_key=api_key, payload=repair_payload
+            )
+            content = repaired if _is_structured_beginner_reply(repaired) else (
+                "Chinese: 请告诉我你想表达的英文句子。\n"
+                "Pinyin: Qǐng gàosu wǒ nǐ xiǎng biǎodá de Yīngwén jùzi.\n"
+                "Meaning: Please tell me the English sentence you want to say."
+            )
+
+    return LLMChatResponse(reply=_normalize_structured_reply(content))
 
 
 async def _speech_turn_handler(

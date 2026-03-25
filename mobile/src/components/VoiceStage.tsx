@@ -8,7 +8,12 @@ import {
   View,
 } from "react-native";
 
-export type VoiceStageState = "idle" | "listening" | "processing" | "speaking";
+export type VoiceStageState =
+  | "idle"
+  | "listening"
+  | "processing"
+  | "speaking"
+  | "complete";
 export type VoiceTone = "warm" | "bright" | "deep";
 
 type VoiceStageProps = {
@@ -23,8 +28,9 @@ type VoiceStageProps = {
 const statusTextByState: Record<VoiceStageState, string> = {
   idle: "Tap and hold to speak",
   listening: "Listening...",
-  processing: "Thinking...",
+  processing: "Translating...",
   speaking: "Playing pronunciation...",
+  complete: "Complete ✓",
 };
 
 const VoiceStage = ({
@@ -47,7 +53,15 @@ const VoiceStage = ({
 
   useEffect(() => {
     const nextState =
-      state === "idle" ? 0 : state === "listening" ? 1 : state === "processing" ? 2 : 3;
+      state === "idle"
+        ? 0
+        : state === "listening"
+        ? 1
+        : state === "processing"
+        ? 2
+        : state === "speaking"
+        ? 3
+        : 4;
     Animated.timing(stateMorph, {
       toValue: nextState,
       duration: 280,
@@ -272,14 +286,14 @@ const VoiceStage = ({
             borderWidth: 1,
             borderColor: "rgba(255,255,255,0.12)",
             opacity: stateMorph.interpolate({
-              inputRange: [0, 1, 2, 3],
-              outputRange: [0.08, 0.16, 0.2, 0.14],
+              inputRange: [0, 1, 2, 3, 4],
+              outputRange: [0.08, 0.16, 0.2, 0.14, 0.22],
             }),
             transform: [
               {
                 scale: stateMorph.interpolate({
-                  inputRange: [0, 1, 2, 3],
-                  outputRange: [1, 1.03, 1.04, 1.02],
+                  inputRange: [0, 1, 2, 3, 4],
+                  outputRange: [1, 1.03, 1.04, 1.02, 1.05],
                 }),
               },
             ],
@@ -370,6 +384,31 @@ const VoiceStage = ({
             </View>
           ) : null}
 
+          {state === "complete" ? (
+            <Animated.View
+              style={[
+                styles.completeRing,
+                {
+                  width: ringSize - 2,
+                  height: ringSize - 2,
+                  borderColor: ringAccentColor,
+                  opacity: stateMorph.interpolate({
+                    inputRange: [3, 4],
+                    outputRange: [0.2, 0.85],
+                  }),
+                  transform: [
+                    {
+                      scale: stateMorph.interpolate({
+                        inputRange: [3, 4],
+                        outputRange: [0.96, 1.02],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            />
+          ) : null}
+
           <Animated.View
             style={[
               styles.orb,
@@ -435,14 +474,14 @@ const VoiceStage = ({
           state === "idle" ? styles.statusTextIdle : null,
           {
             opacity: stateMorph.interpolate({
-              inputRange: [0, 1, 2, 3],
-              outputRange: [0.9, 1, 0.96, 0.94],
+              inputRange: [0, 1, 2, 3, 4],
+              outputRange: [0.9, 1, 0.96, 0.94, 1],
             }),
             transform: [
               {
                 translateY: stateMorph.interpolate({
-                  inputRange: [0, 1, 2, 3],
-                  outputRange: [0, -1, -1, 0],
+                  inputRange: [0, 1, 2, 3, 4],
+                  outputRange: [0, -1, -1, 0, -1],
                 }),
               },
             ],
@@ -527,6 +566,14 @@ const styles = StyleSheet.create({
     position: "absolute",
     borderRadius: 999,
     borderWidth: 2,
+  },
+  completeRing: {
+    position: "absolute",
+    borderRadius: 999,
+    borderWidth: 2,
+    shadowOpacity: 0.35,
+    shadowRadius: 7,
+    shadowOffset: { width: 0, height: 0 },
   },
   segmentRing: {
     position: "absolute",
