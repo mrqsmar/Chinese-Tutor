@@ -12,7 +12,10 @@ class GeminiSTTClient:
         self._model = model
         self._client = httpx.AsyncClient(timeout=30.0)  # reuse connections
 
-    def _needs_normalization(self, t: str) -> bool:
+    def _needs_normalization(self, t: str, source_lang: str = "en") -> bool:
+        # Chinese transcription has different error patterns — skip English-specific normalization
+        if source_lang == "zh":
+            return False
         s = (t or "").strip()
         if len(s.split()) <= 2:
             return True
@@ -24,15 +27,24 @@ class GeminiSTTClient:
     async def transcribe_raw(self, audio_bytes: bytes, mime_type: str, source_lang: str) -> str:
         encoded = base64.b64encode(audio_bytes).decode("utf-8")
 
+        if source_lang == "zh":
+            system_text = (
+                "You are a speech transcription engine for a Chinese language learning app. "
+                "Transcribe the user's spoken Chinese as natural Simplified Chinese characters. "
+                "Return ONLY the transcript text."
+            )
+        else:
+            system_text = (
+                "You are a speech transcription engine for an English learning app. "
+                "Transcribe the user's spoken request as natural English. "
+                "Return ONLY the transcript text."
+            )
+
         payload = {
             "systemInstruction": {
                 "parts": [
                     {
-                        "text": (
-                            "You are a speech transcription engine for an English learning app. "
-                            "Transcribe the user's spoken request as natural English. "
-                            "Return ONLY the transcript text."
-                        )
+                        "text": system_text
                     }
                 ]
             },
@@ -124,7 +136,7 @@ class GeminiSTTClient:
     # --- STEP 3: public API (what the rest of your app already uses) ---
     async def transcribe(self, audio_bytes: bytes, mime_type: str, source_lang: str) -> str:
         raw = await self.transcribe_raw(audio_bytes, mime_type, source_lang)
-        if self._needs_normalization(raw):
+        if self._needs_normalization(raw, source_lang):
             norm = await self.normalize_transcript(raw)
             return norm
         return raw

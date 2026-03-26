@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -104,7 +105,7 @@ class GeminiSpeechTurnTextClient:
             if response.status_code == 429:
                 wait = 0.5 * (2**attempt)
                 logger.warning("TEXT 429 Too Many Requests. retrying in %.1fs", wait)
-                time.sleep(wait)
+                await asyncio.sleep(wait)
                 continue
 
             try:

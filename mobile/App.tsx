@@ -180,12 +180,20 @@ const LoadingState = ({
   </SafeAreaView>
 );
 
-const EmptyChatState = () => (
+const EmptyChatState = ({ preference }: { preference: SpeakerPreference }) => (
   <View style={styles.emptyStateCard}>
-    <Text style={styles.emptyStateEyebrow}>Start learning</Text>
-    <Text style={styles.emptyStateTitle}>Say one phrase out loud or type one.</Text>
+    <Text style={styles.emptyStateEyebrow}>
+      {preference === “chinese” ? “开始学习” : “Start learning”}
+    </Text>
+    <Text style={styles.emptyStateTitle}>
+      {preference === “chinese”
+        ? “说一句中文，或者打一句话。”
+        : “Say one phrase out loud or type one.”}
+    </Text>
     <Text style={styles.emptyStateBody}>
-      Try: “How do I say nice to meet you?” or “1, 2, 3 in Chinese.”
+      {preference === “chinese”
+        ? “试试：”你好是什么意思？”或”1、2、3用英文怎么说？””
+        : “Try: \”How do I say nice to meet you?\” or \”1, 2, 3 in Chinese.\””}
     </Text>
   </View>
 );
@@ -561,6 +569,13 @@ export default function App() {
     await AsyncStorage.setItem(STORAGE_KEY, selection);
   };
 
+  const handleSwitchLanguage = async (next: SpeakerPreference) => {
+    if (next === preference) return;
+    setMessages([]);
+    setPreference(next);
+    await AsyncStorage.setItem(STORAGE_KEY, next);
+  };
+
   const handleLogin = async (username: string, password: string) => {
     if (!username || !password) {
       setAuthError("Enter both username and password.");
@@ -756,7 +771,11 @@ export default function App() {
 
       streamAssistantResponse(assistantId, data.reply);
     } catch (error) {
-      setError("抱歉，暂时无法连接到服务器。请稍后再试。");
+      setError(
+        preference === "chinese"
+          ? "抱歉，暂时无法连接到服务器。请稍后再试。"
+          : "Could not reach the server. Please try again."
+      );
       setMessages((prev) =>
         prev.filter((message) => !message.isTyping)
       );
@@ -1332,11 +1351,27 @@ export default function App() {
             >
               Chinese Tutor
             </Animated.Text>
-            {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
-              <Pressable onPress={handleLogout}>
-                <Text style={styles.logoutText}>Logout</Text>
-              </Pressable>
-            )}
+            <View style={styles.headerRight}>
+              <View style={styles.langToggle}>
+                <Pressable
+                  style={[styles.langPill, preference === "english" && styles.langPillActive]}
+                  onPress={() => void handleSwitchLanguage("english")}
+                >
+                  <Text style={[styles.langPillText, preference === "english" && styles.langPillTextActive]}>EN</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.langPill, preference === "chinese" && styles.langPillActive]}
+                  onPress={() => void handleSwitchLanguage("chinese")}
+                >
+                  <Text style={[styles.langPillText, preference === "chinese" && styles.langPillTextActive]}>中</Text>
+                </Pressable>
+              </View>
+              {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
+                <Pressable onPress={handleLogout}>
+                  <Text style={styles.logoutText}>Logout</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
           <Animated.Text
             style={[styles.subtitle, { color: interpolatedTheme.subtitleText }]}
@@ -1381,7 +1416,9 @@ export default function App() {
           <Animated.Text
             style={[styles.voiceSubtitle, { color: interpolatedTheme.voiceSupportText }]}
           >
-            Hold the button, speak, and release to translate + hear it back.
+            {preference === "chinese"
+              ? "按住按钮，说一句中文，松开后听英文翻译。"
+              : "Hold the button, speak, and release to translate + hear it back."}
           </Animated.Text>
           {micPermission === "denied" ? (
             <Text style={styles.voiceError}>
@@ -1488,7 +1525,7 @@ export default function App() {
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.messagesContent}
-          ListEmptyComponent={<EmptyChatState />}
+          ListEmptyComponent={<EmptyChatState preference={preference} />}
           onContentSizeChange={() =>
             listRef.current?.scrollToEnd({ animated: true })
           }
@@ -1717,6 +1754,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#B91C1C",
     fontWeight: "600",
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  langToggle: {
+    flexDirection: "row",
+    gap: 4,
+  },
+  langPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(107, 44, 18, 0.25)",
+    backgroundColor: "rgba(255,255,255,0.15)",
+  },
+  langPillActive: {
+    backgroundColor: "rgba(107, 44, 18, 0.12)",
+    borderColor: "rgba(107, 44, 18, 0.5)",
+  },
+  langPillText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(107, 44, 18, 0.4)",
+  },
+  langPillTextActive: {
+    color: "#6B2C12",
   },
   messagesContent: {
     flexGrow: 1,

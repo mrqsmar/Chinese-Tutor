@@ -23,7 +23,7 @@ export const parseLearningCard = (text: string) => {
   const taggedEnglish = normalized.find(
     (line) => /^(english|meaning|translation)\s*:/i.test(line)
   );
-  const taggedTip = normalized.find((line) => /^(tip|example|note)\s*:/i.test(line));
+  const taggedTip = normalized.find((line) => /^(tip|example|notes?)\s*:/i.test(line));
 
   const chineseFromTag = taggedChinese?.replace(/^chinese\s*:/i, "").trim();
   const pinyinFromTag = taggedPinyin?.replace(/^pinyin\s*:/i, "").trim();
