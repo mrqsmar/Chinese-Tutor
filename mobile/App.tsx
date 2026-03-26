@@ -183,17 +183,17 @@ const LoadingState = ({
 const EmptyChatState = ({ preference }: { preference: SpeakerPreference }) => (
   <View style={styles.emptyStateCard}>
     <Text style={styles.emptyStateEyebrow}>
-      {preference === “chinese” ? “开始学习” : “Start learning”}
+      {preference === "chinese" ? "开始学习" : "Start learning"}
     </Text>
     <Text style={styles.emptyStateTitle}>
-      {preference === “chinese”
-        ? “说一句中文，或者打一句话。”
-        : “Say one phrase out loud or type one.”}
+      {preference === "chinese"
+        ? "说一句中文，或者打一句话。"
+        : "Say one phrase out loud or type one."}
     </Text>
     <Text style={styles.emptyStateBody}>
-      {preference === “chinese”
-        ? “试试：”你好是什么意思？”或”1、2、3用英文怎么说？””
-        : “Try: \”How do I say nice to meet you?\” or \”1, 2, 3 in Chinese.\””}
+      {preference === "chinese"
+        ? '试试：”你好是什么意思？”或”1、2、3用英文怎么说？”'
+        : "Try: \"How do I say nice to meet you?\" or \"1, 2, 3 in Chinese.\""}
     </Text>
   </View>
 );
