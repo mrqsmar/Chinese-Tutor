@@ -180,12 +180,20 @@ const LoadingState = ({
   </SafeAreaView>
 );
 
-const EmptyChatState = () => (
+const EmptyChatState = ({ preference }: { preference: SpeakerPreference }) => (
   <View style={styles.emptyStateCard}>
-    <Text style={styles.emptyStateEyebrow}>Start learning</Text>
-    <Text style={styles.emptyStateTitle}>Say one phrase out loud or type one.</Text>
+    <Text style={styles.emptyStateEyebrow}>
+      {preference === “chinese” ? “开始学习” : “Start learning”}
+    </Text>
+    <Text style={styles.emptyStateTitle}>
+      {preference === “chinese”
+        ? “说一句中文，或者打一句话。”
+        : “Say one phrase out loud or type one.”}
+    </Text>
     <Text style={styles.emptyStateBody}>
-      Try: “How do I say nice to meet you?” or “1, 2, 3 in Chinese.”
+      {preference === “chinese”
+        ? “试试：”你好是什么意思？”或”1、2、3用英文怎么说？””
+        : “Try: \”How do I say nice to meet you?\” or \”1, 2, 3 in Chinese.\””}
     </Text>
   </View>
 );
@@ -1381,7 +1389,9 @@ export default function App() {
           <Animated.Text
             style={[styles.voiceSubtitle, { color: interpolatedTheme.voiceSupportText }]}
           >
-            Hold the button, speak, and release to translate + hear it back.
+            {preference === "chinese"
+              ? "按住按钮，说一句中文，松开后听英文翻译。"
+              : "Hold the button, speak, and release to translate + hear it back."}
           </Animated.Text>
           {micPermission === "denied" ? (
             <Text style={styles.voiceError}>
@@ -1488,7 +1498,7 @@ export default function App() {
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.messagesContent}
-          ListEmptyComponent={<EmptyChatState />}
+          ListEmptyComponent={<EmptyChatState preference={preference} />}
           onContentSizeChange={() =>
             listRef.current?.scrollToEnd({ animated: true })
           }
