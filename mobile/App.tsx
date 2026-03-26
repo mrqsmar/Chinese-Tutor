@@ -23,7 +23,8 @@ import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
 import LockScreen from "./src/components/LockScreen";
 import StructuredLearningCard, {
-  parseLearningCard,
+  MultiCardGroup,
+  parseMultipleCards,
 } from "./src/components/StructuredLearningCard";
 import VoiceStage, { type VoiceStageState } from "./src/components/VoiceStage";
 import {
@@ -201,9 +202,13 @@ const EmptyChatState = ({ preference }: { preference: SpeakerPreference }) => (
 const MessageBubble = ({
   item,
   theme,
+  preference,
+  onSuggestionPress,
 }: {
   item: ChatMessage;
   theme: ModeTheme;
+  preference: "english" | "chinese" | null;
+  onSuggestionPress: (text: string) => void;
 }) => {
   const entrance = useRef(new Animated.Value(0)).current;
 
@@ -242,9 +247,26 @@ const MessageBubble = ({
     >
       {item.isTyping ? (
         <TypingIndicator />
-      ) : item.role === "assistant" ? (
-        <StructuredLearningCard {...parseLearningCard(item.text)} />
-      ) : (
+      ) : item.role === "assistant" ? (() => {
+          const cards = parseMultipleCards(item.text);
+          const mode = preference ?? "english";
+          if (cards.length > 1) {
+            return (
+              <MultiCardGroup
+                cards={cards}
+                mode={mode}
+                onSuggestionPress={onSuggestionPress}
+              />
+            );
+          }
+          return (
+            <StructuredLearningCard
+              {...cards[0]}
+              mode={mode}
+              onSuggestionPress={onSuggestionPress}
+            />
+          );
+        })() : (
         <Text
           style={[
             item.role === "user" ? styles.userText : styles.botText,
@@ -700,8 +722,8 @@ export default function App() {
     []
   );
 
-  const sendMessage = async () => {
-    const trimmed = input.trim();
+  const sendMessage = async (overrideText?: string) => {
+    const trimmed = (overrideText ?? input).trim();
     if (!trimmed || isSending || !preference) {
       return;
     }
@@ -722,7 +744,7 @@ export default function App() {
     const conversation = [...messages, userMessage];
 
     setMessages([...conversation, typingMessage]);
-    setInput("");
+    if (!overrideText) setInput("");
     setIsSending(true);
     setError(null);
     sendBurstAnim.setValue(0);
@@ -1198,8 +1220,19 @@ export default function App() {
   const sendButton = useMicroButton();
   const canSend = input.trim().length > 0 && !isSending;
 
+  const handleSuggestionPress = useCallback(
+    (text: string) => { void sendMessage(text); },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [preference, messages, isSending]
+  );
+
   const renderItem = ({ item }: { item: ChatMessage }) => (
-    <MessageBubble item={item} theme={activeTheme} />
+    <MessageBubble
+      item={item}
+      theme={activeTheme}
+      preference={preference}
+      onSuggestionPress={handleSuggestionPress}
+    />
   );
 
   if (isLoadingAppLock) {
