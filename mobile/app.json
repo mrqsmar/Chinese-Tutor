@@ -16,6 +16,7 @@
       }
     },
     "android": {
+      "package": "com.chinesetutor.app",
       "permissions": [
         "RECORD_AUDIO"
       ]
