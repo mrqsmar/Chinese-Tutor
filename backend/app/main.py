@@ -618,7 +618,7 @@ async def llm_chat(
     system_prompt = _build_system_prompt(request.speaker)
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "generationConfig": {"maxOutputTokens": 160},
+        "generationConfig": {"maxOutputTokens": 300},
         "contents": [
             {
                 "role": "model" if message.role == "assistant" else "user",
@@ -693,9 +693,9 @@ async def llm_chat(
                 logger.info("Repair Gemini call completed")
                 logger.info("Repaired Gemini response preview: %s", repaired[:300])
                 content = repaired if _is_structured_beginner_reply(repaired) else (
-                    "Chinese: 抱歉，我刚才格式化失败了。请再试一次，我会直接帮你翻译这句英文。\n"
-                    "Pinyin: Bàoqiàn, wǒ gāngcái géshìhuà shībài le. Qǐng zài shì yí cì, wǒ huì zhíjiē bāng nǐ fānyì zhè jù Yīngwén.\n"
-                    "Meaning: Sorry, formatting failed just now. Please try once more and I will translate your English sentence directly."
+                    "Chinese: 请再试一次\n"
+                    "Pinyin: Qǐng zài shì yī cì\n"
+                    "Meaning: Something went wrong. Please try your question again."
                 )
     except httpx.HTTPStatusError as exc:
         body_preview = exc.response.text[:1000] if exc.response is not None else ""
