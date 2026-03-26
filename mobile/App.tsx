@@ -450,7 +450,7 @@ export default function App() {
   const ambientDriftA = useRef(new Animated.Value(0)).current;
   const ambientDriftB = useRef(new Animated.Value(0)).current;
   const headerEntrance = useRef(new Animated.Value(0)).current;
-  const themeProgress = useRef(new Animated.Value(1)).current;
+  const themeColorProgress = useRef(new Animated.Value(1)).current;
   const [themeFrom, setThemeFrom] = useState<VoiceOption>(selectedVoice);
   const [themeTo, setThemeTo] = useState<VoiceOption>(selectedVoice);
 
@@ -616,7 +616,7 @@ export default function App() {
     const fromTheme = MODE_THEMES[themeFrom];
     const toTheme = MODE_THEMES[themeTo];
     const interpolateColor = (key: keyof ModeTheme) =>
-      themeProgress.interpolate({
+      themeColorProgress.interpolate({
         inputRange: [0, 1],
         outputRange: [fromTheme[key], toTheme[key]],
       });
@@ -648,7 +648,7 @@ export default function App() {
       userMessageText: interpolateColor("userMessageText"),
       messageAccentText: interpolateColor("messageAccentText"),
     };
-  }, [themeFrom, themeProgress, themeTo]);
+  }, [themeColorProgress, themeFrom, themeTo]);
   const activeTheme = MODE_THEMES[selectedVoice];
 
   useEffect(() => {
@@ -1134,14 +1134,15 @@ export default function App() {
     }
     setThemeFrom(themeTo);
     setThemeTo(selectedVoice);
-    themeProgress.setValue(0);
-    Animated.timing(themeProgress, {
+    themeColorProgress.stopAnimation();
+    themeColorProgress.setValue(0);
+    Animated.timing(themeColorProgress, {
       toValue: 1,
       duration: 900,
       easing: Easing.inOut(Easing.cubic),
       useNativeDriver: false,
     }).start();
-  }, [selectedVoice, themeProgress, themeTo]);
+  }, [selectedVoice, themeColorProgress, themeTo]);
 
   useEffect(() => {
     Animated.timing(headerEntrance, {

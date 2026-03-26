@@ -47,9 +47,13 @@ const VoiceStage = ({
   const ringSpin = useRef(new Animated.Value(0)).current;
   const speakingShimmer = useRef(new Animated.Value(0)).current;
   const stateMorph = useRef(new Animated.Value(0)).current;
-  const modeTransition = useRef(
+  const modeTransitionNative = useRef(
     new Animated.Value(mode === "warm" ? 0 : mode === "bright" ? 1 : 2)
   ).current;
+  const modeTransitionColor = useRef(
+    new Animated.Value(mode === "warm" ? 0 : mode === "bright" ? 1 : 2)
+  ).current;
+  const pressGlowBoost = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const nextState =
@@ -72,13 +76,20 @@ const VoiceStage = ({
 
   useEffect(() => {
     const targetMode = mode === "warm" ? 0 : mode === "bright" ? 1 : 2;
-    Animated.timing(modeTransition, {
+    const nativeTransition = Animated.timing(modeTransitionNative, {
+      toValue: targetMode,
+      duration: 620,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: true,
+    });
+    const colorTransition = Animated.timing(modeTransitionColor, {
       toValue: targetMode,
       duration: 620,
       easing: Easing.inOut(Easing.cubic),
       useNativeDriver: false,
-    }).start();
-  }, [mode, modeTransition]);
+    });
+    Animated.parallel([nativeTransition, colorTransition]).start();
+  }, [mode, modeTransitionColor, modeTransitionNative]);
 
   useEffect(() => {
     const inhaleExhaleDuration =
@@ -111,7 +122,13 @@ const VoiceStage = ({
       tension: 180,
       useNativeDriver: true,
     }).start();
-  }, [pressScale, state]);
+    Animated.spring(pressGlowBoost, {
+      toValue: state === "listening" ? 1 : 0,
+      friction: 8,
+      tension: 170,
+      useNativeDriver: false,
+    }).start();
+  }, [pressGlowBoost, pressScale, state]);
 
   useEffect(() => {
     if (state !== "listening") {
@@ -187,7 +204,7 @@ const VoiceStage = ({
     outputRange: [1, 1.04],
   });
 
-  const breathingScaleRange = modeTransition.interpolate({
+  const breathingScaleRange = modeTransitionNative.interpolate({
     inputRange: [0, 1, 2],
     outputRange: [1.07, 1.11, 1.05],
   });
@@ -196,7 +213,7 @@ const VoiceStage = ({
     Animated.multiply(breathing, Animated.subtract(breathingScaleRange, 1))
   );
 
-  const motionLift = modeTransition.interpolate({
+  const motionLift = modeTransitionNative.interpolate({
     inputRange: [0, 1, 2],
     outputRange: [1.4, 2.3, 2.8],
   });
@@ -206,46 +223,51 @@ const VoiceStage = ({
     outputRange: [0, -1],
   });
 
-  const primaryGradientColor = modeTransition.interpolate({
+  const primaryGradientColor = modeTransitionColor.interpolate({
     inputRange: [0, 1, 2],
     outputRange: ["#FF9A43", "#42E8FF", "#8E63FF"],
   });
 
-  const secondaryGradientColor = modeTransition.interpolate({
+  const secondaryGradientColor = modeTransitionColor.interpolate({
     inputRange: [0, 1, 2],
     outputRange: ["#FF6E67", "#2E71FF", "#4A3BBD"],
   });
 
-  const orbBorderColor = modeTransition.interpolate({
+  const orbBorderColor = modeTransitionColor.interpolate({
     inputRange: [0, 1, 2],
     outputRange: ["#FFD2AC88", "#B0F3FF99", "#D7CBFF88"],
   });
 
-  const glowColor = modeTransition.interpolate({
+  const glowColor = modeTransitionColor.interpolate({
     inputRange: [0, 1, 2],
     outputRange: ["#FF8A5D", "#42D7FF", "#6C54D6"],
   });
 
-  const ringAccentColor = modeTransition.interpolate({
+  const ringAccentColor = modeTransitionColor.interpolate({
     inputRange: [0, 1, 2],
     outputRange: ["#FFB27C", "#7AF4FF", "#A58BFF"],
   });
 
-  const glowOpacityByMode = modeTransition.interpolate({
+  const glowOpacityByMode = modeTransitionColor.interpolate({
     inputRange: [0, 1, 2],
     outputRange: [0.4, 0.54, 0.28],
   });
 
-  const glowShadowRadiusByMode = modeTransition.interpolate({
-    inputRange: [0, 1, 2],
-    outputRange: [22, 14, 9],
-  });
-
   const glowOpacity = Animated.add(
     glowOpacityByMode,
-    pressScale.interpolate({
+    pressGlowBoost.interpolate({
       inputRange: [0, 1],
       outputRange: [0, 0.2],
+    })
+  );
+  const ambientPulseOpacity = Animated.add(
+    breathing.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0.18, 0.32],
+    }),
+    pressScale.interpolate({
+      inputRange: [0, 1],
+      outputRange: [0, 0.1],
     })
   );
 
@@ -301,19 +323,24 @@ const VoiceStage = ({
         />
           <Animated.View
             style={[
-              styles.ambientGlow,
+              styles.ambientGlowBase,
               {
                 width: size + 26,
                 height: size + 26,
                 backgroundColor: glowColor,
-                shadowColor: glowColor,
-                shadowRadius: glowShadowRadiusByMode,
                 opacity: glowOpacity,
-                transform: [
-                  {
-                    scale: ambientScale,
-                  },
-                ],
+              },
+            ]}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              styles.ambientGlowPulse,
+              {
+                width: size + 34,
+                height: size + 34,
+                opacity: ambientPulseOpacity,
+                transform: [{ scale: ambientScale }],
               },
             ]}
           />
@@ -342,11 +369,11 @@ const VoiceStage = ({
                   height: ringSize,
                   borderTopColor: ringAccentColor,
                   borderRightColor: secondaryGradientColor,
-                  borderBottomColor: modeTransition.interpolate({
+                  borderBottomColor: modeTransitionColor.interpolate({
                     inputRange: [0, 1, 2],
                     outputRange: ["#FFB27A22", "#77EEFF22", "#9B84FF22"],
                   }),
-                  borderLeftColor: modeTransition.interpolate({
+                  borderLeftColor: modeTransitionColor.interpolate({
                     inputRange: [0, 1, 2],
                     outputRange: ["#FF866422", "#3B78FF22", "#5B49C622"],
                   }),
@@ -443,7 +470,7 @@ const VoiceStage = ({
               style={[
                 styles.orbHighlight,
                 {
-                  opacity: modeTransition.interpolate({
+                  opacity: modeTransitionColor.interpolate({
                     inputRange: [0, 1, 2],
                     outputRange: [0.34, 0.28, 0.22],
                   }),
@@ -454,11 +481,11 @@ const VoiceStage = ({
               style={[
                 styles.orbInnerCore,
                 {
-                  backgroundColor: modeTransition.interpolate({
+                  backgroundColor: modeTransitionColor.interpolate({
                     inputRange: [0, 1, 2],
                     outputRange: ["#FFF3DF66", "#D7FBFF6B", "#D7CDFF5E"],
                   }),
-                  borderColor: modeTransition.interpolate({
+                  borderColor: modeTransitionColor.interpolate({
                     inputRange: [0, 1, 2],
                     outputRange: ["#FFD5B277", "#BBF0FF8A", "#D7C5FF76"],
                   }),
@@ -507,11 +534,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  ambientGlow: {
+  ambientGlowBase: {
     position: "absolute",
     borderRadius: 999,
-    shadowOpacity: 0.8,
-    shadowOffset: { width: 0, height: 0 },
+  },
+  ambientGlowPulse: {
+    position: "absolute",
+    borderRadius: 999,
+    backgroundColor: "#FFFFFF",
   },
   orb: {
     borderWidth: 1,
