@@ -569,6 +569,13 @@ export default function App() {
     await AsyncStorage.setItem(STORAGE_KEY, selection);
   };
 
+  const handleSwitchLanguage = async (next: SpeakerPreference) => {
+    if (next === preference) return;
+    setMessages([]);
+    setPreference(next);
+    await AsyncStorage.setItem(STORAGE_KEY, next);
+  };
+
   const handleLogin = async (username: string, password: string) => {
     if (!username || !password) {
       setAuthError("Enter both username and password.");
@@ -1340,11 +1347,27 @@ export default function App() {
             >
               Chinese Tutor
             </Animated.Text>
-            {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
-              <Pressable onPress={handleLogout}>
-                <Text style={styles.logoutText}>Logout</Text>
-              </Pressable>
-            )}
+            <View style={styles.headerRight}>
+              <View style={styles.langToggle}>
+                <Pressable
+                  style={[styles.langPill, preference === "english" && styles.langPillActive]}
+                  onPress={() => void handleSwitchLanguage("english")}
+                >
+                  <Text style={[styles.langPillText, preference === "english" && styles.langPillTextActive]}>EN</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.langPill, preference === "chinese" && styles.langPillActive]}
+                  onPress={() => void handleSwitchLanguage("chinese")}
+                >
+                  <Text style={[styles.langPillText, preference === "chinese" && styles.langPillTextActive]}>中</Text>
+                </Pressable>
+              </View>
+              {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
+                <Pressable onPress={handleLogout}>
+                  <Text style={styles.logoutText}>Logout</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
           <Animated.Text
             style={[styles.subtitle, { color: interpolatedTheme.subtitleText }]}
@@ -1727,6 +1750,35 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#B91C1C",
     fontWeight: "600",
+  },
+  headerRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  langToggle: {
+    flexDirection: "row",
+    gap: 4,
+  },
+  langPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "rgba(107, 44, 18, 0.25)",
+    backgroundColor: "rgba(255,255,255,0.15)",
+  },
+  langPillActive: {
+    backgroundColor: "rgba(107, 44, 18, 0.12)",
+    borderColor: "rgba(107, 44, 18, 0.5)",
+  },
+  langPillText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "rgba(107, 44, 18, 0.4)",
+  },
+  langPillTextActive: {
+    color: "#6B2C12",
   },
   messagesContent: {
     flexGrow: 1,
