@@ -771,7 +771,11 @@ export default function App() {
 
       streamAssistantResponse(assistantId, data.reply);
     } catch (error) {
-      setError("抱歉，暂时无法连接到服务器。请稍后再试。");
+      setError(
+        preference === "chinese"
+          ? "抱歉，暂时无法连接到服务器。请稍后再试。"
+          : "Could not reach the server. Please try again."
+      );
       setMessages((prev) =>
         prev.filter((message) => !message.isTyping)
       );
