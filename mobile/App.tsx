@@ -793,11 +793,15 @@ export default function App() {
 
       streamAssistantResponse(assistantId, data.reply);
     } catch (error) {
+<<<<<<< Updated upstream
       setError(
         preference === "chinese"
           ? "抱歉，暂时无法连接到服务器。请稍后再试。"
           : "Could not reach the server. Please try again."
       );
+=======
+      setError("Sorry, unable to connect to the server at the moment. Please try again later。");
+>>>>>>> Stashed changes
       setMessages((prev) =>
         prev.filter((message) => !message.isTyping)
       );
