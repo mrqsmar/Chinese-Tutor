@@ -1345,12 +1345,19 @@ export default function App() {
             ]}
           />
           <View style={styles.headerTitleRow}>
-            <Animated.Text
-              style={[styles.title, { color: interpolatedTheme.titleText }]}
-              onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
-            >
-              Chinese Tutor
-            </Animated.Text>
+            <View style={styles.headerTitleBlock}>
+              <Animated.Text
+                style={[styles.title, { color: interpolatedTheme.titleText }]}
+                onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
+              >
+                {preference === "chinese" ? "英语导师" : "Chinese Tutor"}
+              </Animated.Text>
+              <View style={[styles.headerLangPairBadge, { borderColor: interpolatedTheme.titleText }]}>
+                <Text style={[styles.headerLangPairBadgeText, { color: interpolatedTheme.titleText }]}>
+                  {preference === "chinese" ? "中文 → 英语" : "中文 ↔ EN"}
+                </Text>
+              </View>
+            </View>
             <View style={styles.headerRight}>
               <View style={styles.langToggle}>
                 <Pressable
@@ -1411,7 +1418,7 @@ export default function App() {
           <Animated.Text
             style={[styles.voiceTitle, { color: interpolatedTheme.voiceLabelText }]}
           >
-            Voice Turn
+            {preference === "chinese" ? "语音对话" : "Voice Turn"}
           </Animated.Text>
           <Animated.Text
             style={[styles.voiceSubtitle, { color: interpolatedTheme.voiceSupportText }]}
@@ -1707,33 +1714,50 @@ const styles = StyleSheet.create({
   },
   headerHero: {
     paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(245, 208, 169, 0.55)",
+    paddingTop: 22,
+    paddingBottom: 16,
+    borderBottomWidth: 1.5,
+    borderBottomColor: "rgba(245, 208, 169, 0.7)",
   },
   headerTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
+  headerTitleBlock: {
+    flexDirection: "column",
+    gap: 5,
+  },
+  headerLangPairBadge: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    borderWidth: 1,
+    opacity: 0.65,
+  },
+  headerLangPairBadgeText: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.4,
+  },
   headerAccentGlow: {
     position: "absolute",
-    width: 190,
-    height: 190,
-    borderRadius: 190,
-    right: -70,
-    top: -90,
+    width: 230,
+    height: 230,
+    borderRadius: 230,
+    right: -80,
+    top: -110,
   },
   title: {
-    fontSize: 30,
-    lineHeight: 34,
+    fontSize: 32,
+    lineHeight: 36,
     fontWeight: "800",
-    letterSpacing: -0.4,
+    letterSpacing: -0.6,
     color: "#6B2C12",
   },
   subtitle: {
-    marginTop: 8,
+    marginTop: 10,
     fontSize: 13,
     lineHeight: 18,
     color: "#9A5A2B",
@@ -1765,21 +1789,22 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   langPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 13,
+    paddingVertical: 6,
     borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "rgba(107, 44, 18, 0.25)",
-    backgroundColor: "rgba(255,255,255,0.15)",
+    borderWidth: 1.5,
+    borderColor: "rgba(107, 44, 18, 0.2)",
+    backgroundColor: "rgba(255,255,255,0.2)",
   },
   langPillActive: {
-    backgroundColor: "rgba(107, 44, 18, 0.12)",
-    borderColor: "rgba(107, 44, 18, 0.5)",
+    backgroundColor: "rgba(107, 44, 18, 0.14)",
+    borderColor: "rgba(107, 44, 18, 0.6)",
   },
   langPillText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "rgba(107, 44, 18, 0.4)",
+    fontSize: 13,
+    fontWeight: "700",
+    color: "rgba(107, 44, 18, 0.38)",
+    letterSpacing: 0.3,
   },
   langPillTextActive: {
     color: "#6B2C12",
