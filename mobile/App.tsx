@@ -1544,10 +1544,7 @@ export default function App() {
               styles.inputShell,
               {
                 backgroundColor: interpolatedTheme.composerBackground,
-                borderColor: inputFocusAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [activeTheme.composerBorder, activeTheme.surfaceBorder],
-                }),
+                borderColor: activeTheme.composerBorder,
                 shadowOpacity: inputFocusAnim.interpolate({
                   inputRange: [0, 1],
                   outputRange: [0.03, 0.1],
@@ -1565,7 +1562,7 @@ export default function App() {
                 { color: activeTheme.inputText },
                 Platform.OS === "web" ? ({ outlineWidth: 0 } as never) : null,
               ]}
-              placeholder="Write your phrase in English or 中文"
+              placeholder={preference === "chinese" ? "一起学习吧" : "Let's Learn Together"}
               placeholderTextColor={activeTheme.inputPlaceholder}
               selectionColor="#A06B43"
               value={input}
