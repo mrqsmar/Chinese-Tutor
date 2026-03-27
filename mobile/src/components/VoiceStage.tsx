@@ -23,6 +23,7 @@ type VoiceStageProps = {
   onPressOut: () => void;
   disabled?: boolean;
   size?: number;
+  preference?: "english" | "chinese" | null;
 };
 
 const MODE_COLORS: Record<VoiceTone, { bg: string; bgPress: string; border: string }> = {
@@ -39,12 +40,20 @@ const STATE_ICON: Record<VoiceStageState, string> = {
   complete:   "✓",
 };
 
-const STATE_LABEL: Record<VoiceStageState, string> = {
+const STATE_LABEL_EN: Record<VoiceStageState, string> = {
   idle:       "Hold to speak",
   listening:  "Listening…",
   processing: "Translating…",
   speaking:   "Playing…",
   complete:   "Done",
+};
+
+const STATE_LABEL_ZH: Record<VoiceStageState, string> = {
+  idle:       "按住说话",
+  listening:  "聆听中…",
+  processing: "翻译中…",
+  speaking:   "播放中…",
+  complete:   "完成",
 };
 
 const VoiceStage = ({
@@ -53,7 +62,9 @@ const VoiceStage = ({
   onPressIn,
   onPressOut,
   disabled = false,
+  preference,
 }: VoiceStageProps) => {
+  const STATE_LABEL = preference === "chinese" ? STATE_LABEL_ZH : STATE_LABEL_EN;
   const pressAnim  = useRef(new Animated.Value(0)).current;
   const pulseAnim  = useRef(new Animated.Value(1)).current;
 

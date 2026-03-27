@@ -602,6 +602,8 @@ export default function App() {
   const handleSwitchLanguage = async (next: SpeakerPreference) => {
     if (next === preference) return;
     setMessages([]);
+    setVoiceTurn(null);
+    setVoiceError(null);
     setPreference(next);
     await AsyncStorage.setItem(STORAGE_KEY, next);
   };
@@ -632,6 +634,8 @@ export default function App() {
   const handleLogout = async () => {
     await logout();
     setMessages([]);
+    setVoiceTurn(null);
+    setVoiceError(null);
     setPreference(null);
     setIsLoadingPreference(true);
     setIsAuthenticated(false);
@@ -1544,6 +1548,7 @@ export default function App() {
             <VoiceStage
               state={voiceStageState}
               mode={selectedVoice}
+              preference={preference}
               onPressIn={() => {
                 void startRecording();
               }}
@@ -1639,7 +1644,7 @@ export default function App() {
               ]}
               placeholder={preference === "chinese" ? "一起学习吧" : "Let's Learn Together"}
               placeholderTextColor={activeTheme.inputPlaceholder}
-              selectionColor="#A06B43"
+              selectionColor={activeTheme.messageAccentText}
               value={input}
               onChangeText={setInput}
               editable={!isSending}
