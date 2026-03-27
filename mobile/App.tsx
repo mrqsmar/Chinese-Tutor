@@ -1428,16 +1428,26 @@ export default function App() {
             <View style={styles.headerRight}>
               <View style={styles.langToggle}>
                 <Pressable
-                  style={[styles.langPill, preference === "english" && styles.langPillActive]}
+                  style={[
+                    styles.langPill,
+                    { borderColor: interpolatedTheme.surfaceBorder },
+                    preference === "english" && styles.langPillActive,
+                    preference === "english" && { borderColor: interpolatedTheme.messageAccentText },
+                  ]}
                   onPress={() => void handleSwitchLanguage("english")}
                 >
-                  <Text style={[styles.langPillText, preference === "english" && styles.langPillTextActive]}>EN</Text>
+                  <Text style={[styles.langPillText, { color: interpolatedTheme.subtitleText }, preference === "english" && styles.langPillTextActive, preference === "english" && { color: interpolatedTheme.titleText }]}>EN</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.langPill, preference === "chinese" && styles.langPillActive]}
+                  style={[
+                    styles.langPill,
+                    { borderColor: interpolatedTheme.surfaceBorder },
+                    preference === "chinese" && styles.langPillActive,
+                    preference === "chinese" && { borderColor: interpolatedTheme.messageAccentText },
+                  ]}
                   onPress={() => void handleSwitchLanguage("chinese")}
                 >
-                  <Text style={[styles.langPillText, preference === "chinese" && styles.langPillTextActive]}>中</Text>
+                  <Text style={[styles.langPillText, { color: interpolatedTheme.subtitleText }, preference === "chinese" && styles.langPillTextActive, preference === "chinese" && { color: interpolatedTheme.titleText }]}>中</Text>
                 </Pressable>
               </View>
               {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
@@ -1664,7 +1674,8 @@ export default function App() {
             <Pressable
               style={[
                 styles.micButton,
-                isRecording && styles.micButtonActive,
+                { backgroundColor: activeTheme.sendButtonBackground },
+                isRecording && { backgroundColor: activeTheme.sendButtonBorder },
                 (isUploadingVoice || micPermission === "denied") &&
                   styles.micButtonDisabled,
               ]}
