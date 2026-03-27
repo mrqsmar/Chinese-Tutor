@@ -119,6 +119,9 @@ const TypingIndicator = () => {
     new Animated.Value(0.35),
     new Animated.Value(0.35),
   ]).current;
+  const dotTranslateYAnims = useRef(
+    dotAnims.map((anim) => anim.interpolate({ inputRange: [0.35, 1], outputRange: [0, -2] }))
+  ).current;
 
   useEffect(() => {
     const loops = dotAnims.map((anim, index) =>
@@ -152,14 +155,7 @@ const TypingIndicator = () => {
             styles.typingDot,
             {
               opacity: anim,
-              transform: [
-                {
-                  translateY: anim.interpolate({
-                    inputRange: [0.35, 1],
-                    outputRange: [0, -2],
-                  }),
-                },
-              ],
+              transform: [{ translateY: dotTranslateYAnims[index] }],
             },
           ]}
         />
@@ -213,6 +209,7 @@ const MessageBubble = ({
   onSuggestionPress: (text: string) => void;
 }) => {
   const entrance = useRef(new Animated.Value(0)).current;
+  const entranceTranslateY = useRef(entrance.interpolate({ inputRange: [0, 1], outputRange: [10, 0] })).current;
 
   useEffect(() => {
     Animated.timing(entrance, {
@@ -236,14 +233,7 @@ const MessageBubble = ({
           : null,
         {
           opacity: entrance,
-          transform: [
-            {
-              translateY: entrance.interpolate({
-                inputRange: [0, 1],
-                outputRange: [10, 0],
-              }),
-            },
-          ],
+          transform: [{ translateY: entranceTranslateY }],
         },
       ]}
     >
@@ -287,6 +277,12 @@ const MessageBubble = ({
 const useMicroButton = () => {
   const scale = useRef(new Animated.Value(1)).current;
   const brightness = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(
+    brightness.interpolate({
+      inputRange: [0, 1],
+      outputRange: [1, 0.92],
+    })
+  ).current;
 
   const animateTo = useCallback((toScale: number, toBrightness: number) => {
     Animated.parallel([
@@ -308,10 +304,7 @@ const useMicroButton = () => {
   return {
     style: {
       transform: [{ scale }],
-      opacity: brightness.interpolate({
-        inputRange: [0, 1],
-        outputRange: [1, 0.92],
-      }),
+      opacity,
     },
     handlers: {
       onPressIn: () => animateTo(0.97, 1),
@@ -491,6 +484,22 @@ export default function App() {
   const themeColorProgress = useRef(new Animated.Value(1)).current;
   const [themeFrom, setThemeFrom] = useState<VoiceOption>(selectedVoice);
   const [themeTo, setThemeTo] = useState<VoiceOption>(selectedVoice);
+
+  const ambientDriftATranslateX = useRef(ambientDriftA.interpolate({ inputRange: [0, 1], outputRange: [-24, 26] })).current;
+  const ambientDriftATranslateY = useRef(ambientDriftA.interpolate({ inputRange: [0, 1], outputRange: [-18, 22] })).current;
+  const ambientDriftAScale = useRef(ambientDriftA.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] })).current;
+  const ambientDriftBTranslateX = useRef(ambientDriftB.interpolate({ inputRange: [0, 1], outputRange: [22, -26] })).current;
+  const ambientDriftBTranslateY = useRef(ambientDriftB.interpolate({ inputRange: [0, 1], outputRange: [20, -18] })).current;
+  const ambientDriftBScale = useRef(ambientDriftB.interpolate({ inputRange: [0, 1], outputRange: [1.03, 0.98] })).current;
+  const headerEntranceOpacity = useRef(headerEntrance.interpolate({ inputRange: [0, 1], outputRange: [0, 1] })).current;
+  const headerEntranceTranslateY = useRef(headerEntrance.interpolate({ inputRange: [0, 1], outputRange: [10, 0] })).current;
+  const stageTransitionOpacity = useRef(stageTransition.interpolate({ inputRange: [0, 1, 2, 3], outputRange: [1, 0.96, 0.95, 0.98] })).current;
+  const stageTransitionTranslateY = useRef(stageTransition.interpolate({ inputRange: [0, 1, 2, 3], outputRange: [0, -1, -2, -1] })).current;
+  const inputFocusShadowOpacity = useRef(inputFocusAnim.interpolate({ inputRange: [0, 1], outputRange: [0.03, 0.1] })).current;
+  const inputFocusShadowRadius = useRef(inputFocusAnim.interpolate({ inputRange: [0, 1], outputRange: [5, 12] })).current;
+  const sendBurstTranslateXOuter = useRef(sendBurstAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 2] })).current;
+  const sendBurstTranslateXInner = useRef(sendBurstAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 5] })).current;
+  const sendBurstOpacity = useRef(sendBurstAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.88] })).current;
 
   useEffect(() => {
     logApiBaseUrl("App start");
@@ -1328,24 +1337,9 @@ export default function App() {
             styles.ambientBlobPrimary,
             {
               transform: [
-                {
-                  translateX: ambientDriftA.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-24, 26],
-                  }),
-                },
-                {
-                  translateY: ambientDriftA.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [-18, 22],
-                  }),
-                },
-                {
-                  scale: ambientDriftA.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [1, 1.08],
-                  }),
-                },
+                { translateX: ambientDriftATranslateX },
+                { translateY: ambientDriftATranslateY },
+                { scale: ambientDriftAScale },
               ],
             },
           ]}
@@ -1359,24 +1353,9 @@ export default function App() {
             styles.ambientBlobSecondary,
             {
               transform: [
-                {
-                  translateX: ambientDriftB.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [22, -26],
-                  }),
-                },
-                {
-                  translateY: ambientDriftB.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [20, -18],
-                  }),
-                },
-                {
-                  scale: ambientDriftB.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [1.03, 0.98],
-                  }),
-                },
+                { translateX: ambientDriftBTranslateX },
+                { translateY: ambientDriftBTranslateY },
+                { scale: ambientDriftBScale },
               ],
             },
           ]}
@@ -1395,18 +1374,8 @@ export default function App() {
           style={[
             styles.headerHero,
             {
-              opacity: headerEntrance.interpolate({
-                inputRange: [0, 1],
-                outputRange: [0, 1],
-              }),
-              transform: [
-                {
-                  translateY: headerEntrance.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [10, 0],
-                  }),
-                },
-              ],
+              opacity: headerEntranceOpacity,
+              transform: [{ translateY: headerEntranceTranslateY }],
             },
           ]}
         >
@@ -1555,18 +1524,8 @@ export default function App() {
 
           <Animated.View
             style={{
-              opacity: stageTransition.interpolate({
-                inputRange: [0, 1, 2, 3],
-                outputRange: [1, 0.96, 0.95, 0.98],
-              }),
-              transform: [
-                {
-                  translateY: stageTransition.interpolate({
-                    inputRange: [0, 1, 2, 3],
-                    outputRange: [0, -1, -2, -1],
-                  }),
-                },
-              ],
+              opacity: stageTransitionOpacity,
+              transform: [{ translateY: stageTransitionTranslateY }],
             }}
           >
             <VoiceStage
@@ -1649,14 +1608,8 @@ export default function App() {
               {
                 backgroundColor: interpolatedTheme.composerBackground,
                 borderColor: interpolatedTheme.composerBorder,
-                shadowOpacity: inputFocusAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0.03, 0.1],
-                }),
-                shadowRadius: inputFocusAnim.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [5, 12],
-                }),
+                shadowOpacity: inputFocusShadowOpacity,
+                shadowRadius: inputFocusShadowRadius,
               },
             ]}
           >
@@ -1697,14 +1650,7 @@ export default function App() {
           <Animated.View style={sendButton.style}>
             <Animated.View
               style={{
-                transform: [
-                  {
-                    translateX: sendBurstAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: [0, 2],
-                    }),
-                  },
-                ],
+                transform: [{ translateX: sendBurstTranslateXOuter }],
               }}
             >
               <Pressable
@@ -1724,18 +1670,8 @@ export default function App() {
                   style={[
                     styles.sendButtonContent,
                     {
-                      transform: [
-                        {
-                          translateX: sendBurstAnim.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0, 5],
-                          }),
-                        },
-                      ],
-                      opacity: sendBurstAnim.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [1, 0.88],
-                      }),
+                      transform: [{ translateX: sendBurstTranslateXInner }],
+                      opacity: sendBurstOpacity,
                     },
                   ]}
                 >
