@@ -1327,7 +1327,6 @@ export default function App() {
           style={[
             styles.ambientBlobPrimary,
             {
-              backgroundColor: interpolatedTheme.blobPrimary,
               transform: [
                 {
                   translateX: ambientDriftA.interpolate({
@@ -1350,12 +1349,15 @@ export default function App() {
               ],
             },
           ]}
-        />
+        >
+          <Animated.View
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: interpolatedTheme.blobPrimary }]}
+          />
+        </Animated.View>
         <Animated.View
           style={[
             styles.ambientBlobSecondary,
             {
-              backgroundColor: interpolatedTheme.blobSecondary,
               transform: [
                 {
                   translateX: ambientDriftB.interpolate({
@@ -1378,7 +1380,11 @@ export default function App() {
               ],
             },
           ]}
-        />
+        >
+          <Animated.View
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: interpolatedTheme.blobSecondary }]}
+          />
+        </Animated.View>
       </View>
       <KeyboardAvoidingView
         style={styles.keyboardAvoid}
@@ -1389,7 +1395,6 @@ export default function App() {
           style={[
             styles.headerHero,
             {
-              backgroundColor: interpolatedTheme.headerSurface,
               opacity: headerEntrance.interpolate({
                 inputRange: [0, 1],
                 outputRange: [0, 1],
@@ -1405,6 +1410,9 @@ export default function App() {
             },
           ]}
         >
+          <Animated.View
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: interpolatedTheme.headerSurface }]}
+          />
           <Animated.View
             style={[
               styles.headerAccentGlow,
@@ -1773,6 +1781,7 @@ const styles = StyleSheet.create({
     top: -120,
     right: -120,
     opacity: 0.75,
+    overflow: "hidden",
   },
   ambientBlobSecondary: {
     position: "absolute",
@@ -1782,6 +1791,7 @@ const styles = StyleSheet.create({
     bottom: -170,
     left: -150,
     opacity: 0.62,
+    overflow: "hidden",
   },
   keyboardAvoid: {
     flex: 1,
