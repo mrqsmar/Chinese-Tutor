@@ -1504,29 +1504,35 @@ export default function App() {
           ) : null}
           <View style={styles.voiceOptionsRow}>
             {[
-              { key: "warm", label: "Warm" },
-              { key: "bright", label: "Bright" },
-              { key: "deep", label: "Deep" },
-            ].map((option) => (
-              <Pressable
-                key={option.key}
-                style={[
-                  styles.voiceOptionPill,
-                  selectedVoice === option.key && styles.voiceOptionPillActive,
-                ]}
-                onPress={() => setSelectedVoice(option.key as VoiceOption)}
-                disabled={isRecording || isUploadingVoice}
-              >
-                <Text
+              { key: "warm", label: "Warm", inactiveBg: "#FED7AA", inactiveBorder: "#FDBA74", inactiveText: "#9A3412", activeBg: "#C2410C", activeBorder: "#9A3412" },
+              { key: "bright", label: "Bright", inactiveBg: "#BAE6FD", inactiveBorder: "#7DD3FC", inactiveText: "#0C4A6E", activeBg: "#0369A1", activeBorder: "#075985" },
+              { key: "deep", label: "Deep", inactiveBg: "#DDD6FE", inactiveBorder: "#C4B5FD", inactiveText: "#4C1D95", activeBg: "#5B21B6", activeBorder: "#4C1D95" },
+            ].map((option) => {
+              const isActive = selectedVoice === option.key;
+              return (
+                <Pressable
+                  key={option.key}
                   style={[
-                    styles.voiceOptionText,
-                    selectedVoice === option.key && styles.voiceOptionTextActive,
+                    styles.voiceOptionPill,
+                    {
+                      backgroundColor: isActive ? option.activeBg : option.inactiveBg,
+                      borderColor: isActive ? option.activeBorder : option.inactiveBorder,
+                    },
                   ]}
+                  onPress={() => setSelectedVoice(option.key as VoiceOption)}
+                  disabled={isRecording || isUploadingVoice}
                 >
-                  {option.label}
-                </Text>
-              </Pressable>
-            ))}
+                  <Text
+                    style={[
+                      styles.voiceOptionText,
+                      { color: isActive ? "#FFFFFF" : option.inactiveText },
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
 
           <Animated.View
