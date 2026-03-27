@@ -484,9 +484,6 @@ export default function App() {
   const ambientDriftA = useRef(new Animated.Value(0)).current;
   const ambientDriftB = useRef(new Animated.Value(0)).current;
   const headerEntrance = useRef(new Animated.Value(0)).current;
-  const themeColorProgress = useRef(new Animated.Value(1)).current;
-  const [themeFrom, setThemeFrom] = useState<VoiceOption>(selectedVoice);
-  const [themeTo, setThemeTo] = useState<VoiceOption>(selectedVoice);
 
   const ambientDriftATranslateX = useRef(ambientDriftA.interpolate({ inputRange: [0, 1], outputRange: [-24, 26] })).current;
   const ambientDriftATranslateY = useRef(ambientDriftA.interpolate({ inputRange: [0, 1], outputRange: [-18, 22] })).current;
@@ -673,60 +670,10 @@ export default function App() {
     return "";
   }, [preference]);
 
-  // Use useRef-based caching instead of useMemo for the interpolated theme.
-  // Animated.Interpolation nodes are mutable (they track _children internally);
-  // storing them in useMemo risks React 19 freezing their internal arrays in DEV,
-  // which causes "cannot add a new property" when Animated.View tries to attach.
-  const interpolatedThemeCache = useRef<{
-    key: string;
-    theme: { [K in keyof ModeTheme]: Animated.AnimatedInterpolation<string> };
-  } | null>(null);
-
-  const themeKey = `${themeFrom}|${themeTo}`;
-  if (!interpolatedThemeCache.current || interpolatedThemeCache.current.key !== themeKey) {
-    const fromTheme = MODE_THEMES[themeFrom];
-    const toTheme = MODE_THEMES[themeTo];
-    const interpolateColor = (key: keyof ModeTheme) =>
-      themeColorProgress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [fromTheme[key], toTheme[key]],
-      });
-
-    interpolatedThemeCache.current = {
-      key: themeKey,
-      theme: {
-        gradientTop: interpolateColor("gradientTop"),
-        gradientBottom: interpolateColor("gradientBottom"),
-        blobPrimary: interpolateColor("blobPrimary"),
-        blobSecondary: interpolateColor("blobSecondary"),
-        headerSurface: interpolateColor("headerSurface"),
-        headerGlow: interpolateColor("headerGlow"),
-        headerAccentTrack: interpolateColor("headerAccentTrack"),
-        headerAccentLine: interpolateColor("headerAccentLine"),
-        surfaceTint: interpolateColor("surfaceTint"),
-        surfaceBorder: interpolateColor("surfaceBorder"),
-        titleText: interpolateColor("titleText"),
-        subtitleText: interpolateColor("subtitleText"),
-        voiceLabelText: interpolateColor("voiceLabelText"),
-        voiceSupportText: interpolateColor("voiceSupportText"),
-        inputBarBackground: interpolateColor("inputBarBackground"),
-        inputBarBorder: interpolateColor("inputBarBorder"),
-        composerBackground: interpolateColor("composerBackground"),
-        composerBorder: interpolateColor("composerBorder"),
-        inputText: interpolateColor("inputText"),
-        inputPlaceholder: interpolateColor("inputPlaceholder"),
-        sendButtonBackground: interpolateColor("sendButtonBackground"),
-        sendButtonBorder: interpolateColor("sendButtonBorder"),
-        sendButtonText: interpolateColor("sendButtonText"),
-        userMessageBackground: interpolateColor("userMessageBackground"),
-        userMessageBorder: interpolateColor("userMessageBorder"),
-        userMessageText: interpolateColor("userMessageText"),
-        messageAccentText: interpolateColor("messageAccentText"),
-      },
-    };
-  }
-
-  const interpolatedTheme = interpolatedThemeCache.current.theme;
+  // Use the active theme directly instead of Animated.Interpolation color nodes.
+  // React Native 0.81 + React 19 strict mode causes string-based interpolation
+  // nodes' internal _children arrays to become non-extensible after the first
+  // attach-detach cycle, triggering "cannot add a new property" errors.
   const activeTheme = MODE_THEMES[selectedVoice];
 
   useEffect(() => {
@@ -1231,22 +1178,6 @@ export default function App() {
   }, [ambientDriftA, ambientDriftB]);
 
   useEffect(() => {
-    if (selectedVoice === themeTo) {
-      return;
-    }
-    setThemeFrom(themeTo);
-    setThemeTo(selectedVoice);
-    themeColorProgress.stopAnimation();
-    themeColorProgress.setValue(0);
-    Animated.timing(themeColorProgress, {
-      toValue: 1,
-      duration: 900,
-      easing: Easing.inOut(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [selectedVoice, themeColorProgress, themeTo]);
-
-  useEffect(() => {
     Animated.timing(headerEntrance, {
       toValue: 1,
       duration: 680,
@@ -1349,16 +1280,16 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <View pointerEvents="none" style={styles.ambientBackground}>
-        <Animated.View
+        <View
           style={[
             styles.ambientGradientLayer,
-            { backgroundColor: interpolatedTheme.gradientTop },
+            { backgroundColor: activeTheme.gradientTop },
           ]}
         />
-        <Animated.View
+        <View
           style={[
             styles.ambientGradientLayerBottom,
-            { backgroundColor: interpolatedTheme.gradientBottom },
+            { backgroundColor: activeTheme.gradientBottom },
           ]}
         />
         <Animated.View
@@ -1373,8 +1304,8 @@ export default function App() {
             },
           ]}
         >
-          <Animated.View
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: interpolatedTheme.blobPrimary }]}
+          <View
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: activeTheme.blobPrimary }]}
           />
         </Animated.View>
         <Animated.View
@@ -1389,8 +1320,8 @@ export default function App() {
             },
           ]}
         >
-          <Animated.View
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: interpolatedTheme.blobSecondary }]}
+          <View
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: activeTheme.blobSecondary }]}
           />
         </Animated.View>
       </View>
@@ -1408,25 +1339,25 @@ export default function App() {
             },
           ]}
         >
-          <Animated.View
-            style={[StyleSheet.absoluteFillObject, { backgroundColor: interpolatedTheme.headerSurface }]}
+          <View
+            style={[StyleSheet.absoluteFillObject, { backgroundColor: activeTheme.headerSurface }]}
           />
-          <Animated.View
+          <View
             style={[
               styles.headerAccentGlow,
-              { backgroundColor: interpolatedTheme.headerGlow },
+              { backgroundColor: activeTheme.headerGlow },
             ]}
           />
           <View style={styles.headerTitleRow}>
             <View style={styles.headerTitleBlock}>
-              <Animated.Text
-                style={[styles.title, { color: interpolatedTheme.titleText }]}
+              <Text
+                style={[styles.title, { color: activeTheme.titleText }]}
                 onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
               >
                 {preference === "chinese" ? "英语导师" : "Chinese Tutor"}
-              </Animated.Text>
-              <View style={[styles.headerLangPairBadge, { borderColor: interpolatedTheme.titleText }]}>
-                <Text style={[styles.headerLangPairBadgeText, { color: interpolatedTheme.titleText }]}>
+              </Text>
+              <View style={[styles.headerLangPairBadge, { borderColor: activeTheme.titleText }]}>
+                <Text style={[styles.headerLangPairBadgeText, { color: activeTheme.titleText }]}>
                   {preference === "chinese" ? "中文 → 英语" : "中文 ↔ EN"}
                 </Text>
               </View>
@@ -1436,24 +1367,24 @@ export default function App() {
                 <Pressable
                   style={[
                     styles.langPill,
-                    { borderColor: interpolatedTheme.surfaceBorder },
+                    { borderColor: activeTheme.surfaceBorder },
                     preference === "english" && styles.langPillActive,
-                    preference === "english" && { borderColor: interpolatedTheme.messageAccentText },
+                    preference === "english" && { borderColor: activeTheme.messageAccentText },
                   ]}
                   onPress={() => void handleSwitchLanguage("english")}
                 >
-                  <Text style={[styles.langPillText, { color: interpolatedTheme.subtitleText }, preference === "english" && styles.langPillTextActive, preference === "english" && { color: interpolatedTheme.titleText }]}>EN</Text>
+                  <Text style={[styles.langPillText, { color: activeTheme.subtitleText }, preference === "english" && styles.langPillTextActive, preference === "english" && { color: activeTheme.titleText }]}>EN</Text>
                 </Pressable>
                 <Pressable
                   style={[
                     styles.langPill,
-                    { borderColor: interpolatedTheme.surfaceBorder },
+                    { borderColor: activeTheme.surfaceBorder },
                     preference === "chinese" && styles.langPillActive,
-                    preference === "chinese" && { borderColor: interpolatedTheme.messageAccentText },
+                    preference === "chinese" && { borderColor: activeTheme.messageAccentText },
                   ]}
                   onPress={() => void handleSwitchLanguage("chinese")}
                 >
-                  <Text style={[styles.langPillText, { color: interpolatedTheme.subtitleText }, preference === "chinese" && styles.langPillTextActive, preference === "chinese" && { color: interpolatedTheme.titleText }]}>中</Text>
+                  <Text style={[styles.langPillText, { color: activeTheme.subtitleText }, preference === "chinese" && styles.langPillTextActive, preference === "chinese" && { color: activeTheme.titleText }]}>中</Text>
                 </Pressable>
               </View>
               {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
@@ -1463,24 +1394,24 @@ export default function App() {
               )}
             </View>
           </View>
-          <Animated.Text
-            style={[styles.subtitle, { color: interpolatedTheme.subtitleText }]}
+          <Text
+            style={[styles.subtitle, { color: activeTheme.subtitleText }]}
           >
             {systemHint}
-          </Animated.Text>
-          <Animated.View
+          </Text>
+          <View
             style={[
               styles.headerAccentTrack,
-              { backgroundColor: interpolatedTheme.headerAccentTrack },
+              { backgroundColor: activeTheme.headerAccentTrack },
             ]}
           >
-            <Animated.View
+            <View
               style={[
                 styles.headerAccentLine,
-                { backgroundColor: interpolatedTheme.headerAccentLine },
+                { backgroundColor: activeTheme.headerAccentLine },
               ]}
             />
-          </Animated.View>
+          </View>
         </Animated.View>
 
         {error ? (
@@ -1489,27 +1420,27 @@ export default function App() {
           </View>
         ) : null}
 
-        <Animated.View
+        <View
           style={[
             styles.voiceCard,
             {
-              backgroundColor: interpolatedTheme.surfaceTint,
-              borderColor: interpolatedTheme.surfaceBorder,
+              backgroundColor: activeTheme.surfaceTint,
+              borderColor: activeTheme.surfaceBorder,
             },
           ]}
         >
-          <Animated.Text
-            style={[styles.voiceTitle, { color: interpolatedTheme.voiceLabelText }]}
+          <Text
+            style={[styles.voiceTitle, { color: activeTheme.voiceLabelText }]}
           >
             {preference === "chinese" ? "语音对话" : "Voice Turn"}
-          </Animated.Text>
-          <Animated.Text
-            style={[styles.voiceSubtitle, { color: interpolatedTheme.voiceSupportText }]}
+          </Text>
+          <Text
+            style={[styles.voiceSubtitle, { color: activeTheme.voiceSupportText }]}
           >
             {preference === "chinese"
               ? "按住按钮，说一句中文，松开后听英文翻译。"
               : "Hold the button, speak, and release to translate + hear it back."}
-          </Animated.Text>
+          </Text>
           {micPermission === "denied" ? (
             <Text style={styles.voiceError}>
               Microphone access is disabled. Enable it in system settings.
@@ -1616,7 +1547,7 @@ export default function App() {
               ) : null}
             </View>
           ) : null}
-        </Animated.View>
+        </View>
 
         <FlatList
           ref={listRef}
@@ -1630,13 +1561,13 @@ export default function App() {
           }
         />
 
-        <Animated.View style={[styles.inputBar, { backgroundColor: interpolatedTheme.inputBarBackground, borderTopColor: interpolatedTheme.inputBarBorder }]}>
+        <View style={[styles.inputBar, { backgroundColor: activeTheme.inputBarBackground, borderTopColor: activeTheme.inputBarBorder }]}>
           <Animated.View
             style={[
               styles.inputShell,
               {
-                backgroundColor: interpolatedTheme.composerBackground,
-                borderColor: interpolatedTheme.composerBorder,
+                backgroundColor: activeTheme.composerBackground,
+                borderColor: activeTheme.composerBorder,
                 shadowOpacity: inputFocusShadowOpacity,
                 shadowRadius: inputFocusShadowRadius,
               },
@@ -1712,7 +1643,7 @@ export default function App() {
               </Pressable>
             </Animated.View>
           </Animated.View>
-        </Animated.View>
+        </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
