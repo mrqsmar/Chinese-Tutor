@@ -71,21 +71,67 @@ export const parseMultipleCards = (text: string): CardData[] => {
   return blocks.map((block) => parseLearningCard(block));
 };
 
-const SUGGESTIONS_EN = ["Give me an example sentence", "How do I practice this?", "Teach me the next word"];
-const SUGGESTIONS_ZH = ["给我一个例句", "怎么练习这个？", "继续下一个词"];
+const enChipPool = (chinese: string, english: string): string[] => {
+  const phrase = chinese.length > 10 ? chinese.slice(0, 10) + "…" : chinese;
+  return [
+    `Use "${phrase}" in a conversation`,
+    `When would I say this?`,
+    `What does each character mean?`,
+    `How do I respond to this?`,
+    `Is there a more casual way to say this?`,
+    `Is there a more formal way to say this?`,
+    `Teach me a related phrase`,
+    `What's the cultural context behind "${english}"?`,
+  ];
+};
+
+const zhChipPool = (chinese: string, english: string): string[] => {
+  const phrase = english.length > 15 ? english.slice(0, 12) + "…" : english;
+  return [
+    `"${phrase}"怎么用？`,
+    `给我一个关于"${phrase}"的例句`,
+    `"${phrase}"有近义词吗？`,
+    `怎么回应这句话？`,
+    `教我一个相关短语`,
+    `"${phrase}"有更正式的说法吗？`,
+    `"${phrase}"在什么场合使用？`,
+    `"${phrase}"的反义词是什么？`,
+  ];
+};
+
+const pickChips = (pool: string[], count: number, seed: string): string[] => {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash * 31 + seed.charCodeAt(i)) & 0xffff;
+  }
+  const result: string[] = [];
+  const used = new Set<number>();
+  let i = 0;
+  while (result.length < count && result.length < pool.length) {
+    const idx = (hash + i * 7) % pool.length;
+    if (!used.has(idx)) {
+      used.add(idx);
+      result.push(pool[idx]);
+    }
+    i++;
+  }
+  return result;
+};
 
 const SuggestionChips = ({
   mode,
-  tip,
+  chinese,
+  english,
   onSuggestionPress,
 }: {
   mode?: "english" | "chinese";
-  tip?: string;
+  chinese: string;
+  english: string;
   onSuggestionPress: (text: string) => void;
 }) => {
   const isZh = mode === "chinese";
-  const staticChips = isZh ? SUGGESTIONS_ZH : SUGGESTIONS_EN;
-  const chips = tip ? [tip, ...staticChips.slice(0, 2)] : staticChips;
+  const pool = isZh ? zhChipPool(chinese, english) : enChipPool(chinese, english);
+  const chips = pickChips(pool, 3, chinese + english);
 
   return (
     <View style={styles.chipsRow}>
@@ -185,7 +231,7 @@ const StructuredLearningCard = ({
       mode={mode}
     />
     {onSuggestionPress ? (
-      <SuggestionChips mode={mode} tip={undefined} onSuggestionPress={onSuggestionPress} />
+      <SuggestionChips mode={mode} chinese={chinese} english={english} onSuggestionPress={onSuggestionPress} />
     ) : null}
   </View>
 );
@@ -212,7 +258,7 @@ export const MultiCardGroup = ({
       />
     ))}
     {onSuggestionPress ? (
-      <SuggestionChips mode={mode} tip={undefined} onSuggestionPress={onSuggestionPress} />
+      <SuggestionChips mode={mode} chinese={cards[0].chinese} english={cards[0].english} onSuggestionPress={onSuggestionPress} />
     ) : null}
   </View>
 );

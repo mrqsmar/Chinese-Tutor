@@ -76,6 +76,8 @@ type ModeTheme = {
   subtitleText: string;
   voiceLabelText: string;
   voiceSupportText: string;
+  inputBarBackground: string;
+  inputBarBorder: string;
   composerBackground: string;
   composerBorder: string;
   inputText: string;
@@ -336,6 +338,8 @@ const MODE_THEMES: Record<VoiceOption, ModeTheme> = {
     subtitleText: "#9A5A2B",
     voiceLabelText: "#9A3412",
     voiceSupportText: "#92400E",
+    inputBarBackground: "#F9F2E8",
+    inputBarBorder: "#EEDCC7",
     composerBackground: "#FFFDF9",
     composerBorder: "#E7DAC8",
     inputText: "#4A2F1A",
@@ -363,6 +367,8 @@ const MODE_THEMES: Record<VoiceOption, ModeTheme> = {
     subtitleText: "#356281",
     voiceLabelText: "#0C4A6E",
     voiceSupportText: "#1E5B7D",
+    inputBarBackground: "#EBF4FF",
+    inputBarBorder: "#BAD4F5",
     composerBackground: "#F8FCFF",
     composerBorder: "#BFDBFE",
     inputText: "#12344A",
@@ -390,6 +396,8 @@ const MODE_THEMES: Record<VoiceOption, ModeTheme> = {
     subtitleText: "#5B4B84",
     voiceLabelText: "#4C1D95",
     voiceSupportText: "#5B4B84",
+    inputBarBackground: "#EDEAFF",
+    inputBarBorder: "#C4B5FD",
     composerBackground: "#F6F3FF",
     composerBorder: "#C4B5FD",
     inputText: "#34224E",
@@ -594,6 +602,8 @@ export default function App() {
   const handleSwitchLanguage = async (next: SpeakerPreference) => {
     if (next === preference) return;
     setMessages([]);
+    setVoiceTurn(null);
+    setVoiceError(null);
     setPreference(next);
     await AsyncStorage.setItem(STORAGE_KEY, next);
   };
@@ -624,6 +634,8 @@ export default function App() {
   const handleLogout = async () => {
     await logout();
     setMessages([]);
+    setVoiceTurn(null);
+    setVoiceError(null);
     setPreference(null);
     setIsLoadingPreference(true);
     setIsAuthenticated(false);
@@ -634,7 +646,7 @@ export default function App() {
       return "Explain in English, include Chinese + pinyin.";
     }
     if (preference === "chinese") {
-      return "Explain in Chinese, include English + pronunciation tips.";
+      return "用中文讲解，包含英文和发音提示。";
     }
     return "";
   }, [preference]);
@@ -644,7 +656,7 @@ export default function App() {
       return "Hi! I’m your Chinese tutor. Say hello or tell me what you want to practice.";
     }
     if (preference === "chinese") {
-      return "你好！我是你的中文老师。跟我打个招呼，或者告诉我你想练什么。";
+      return "Hello! I'm your Chinese tutor. Say hello, or tell me what you'd like to practice.";
     }
     return "";
   }, [preference]);
@@ -673,6 +685,8 @@ export default function App() {
       subtitleText: interpolateColor("subtitleText"),
       voiceLabelText: interpolateColor("voiceLabelText"),
       voiceSupportText: interpolateColor("voiceSupportText"),
+      inputBarBackground: interpolateColor("inputBarBackground"),
+      inputBarBorder: interpolateColor("inputBarBorder"),
       composerBackground: interpolateColor("composerBackground"),
       composerBorder: interpolateColor("composerBorder"),
       inputText: interpolateColor("inputText"),
@@ -879,6 +893,11 @@ export default function App() {
       }
       if (status.didJustFinish) {
         setIsPlayingPronunciation(false);
+        if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
+        completeTimeoutRef.current = setTimeout(() => {
+          setShowVoiceComplete(false);
+          completeTimeoutRef.current = null;
+        }, 1500);
       }
     });
     await sound.loadAsync({ uri });
@@ -1000,7 +1019,7 @@ export default function App() {
         type: "audio/mp4",
       } as any);
       formData.append("level", "beginner");
-      formData.append("scenario", "restaurant");
+      formData.append("scenario", "general");
       const sourceLang = preference === "chinese" ? "zh" : "en";
       const targetLang = preference === "chinese" ? "en" : "zh";
       formData.append("source_lang", sourceLang);
@@ -1032,6 +1051,21 @@ export default function App() {
       const data = JSON.parse(raw) as SpeechTurnResponse;
       console.log("Voice Response Payload:", data);
       setVoiceTurn(data);
+
+      // Add voice turn to chat so the tutor has context for follow-up
+      if (data.intent === "translate_request" && data.chinese) {
+        const cardLines = [
+          `Chinese: ${data.chinese}`,
+          `Pinyin: ${data.pinyin ?? ""}`,
+          `English: ${data.transcript}`,
+        ];
+        if (data.notes?.length) cardLines.push(`Notes: ${data.notes[0]}`);
+        setMessages((prev) => [
+          ...prev,
+          { id: createId(), role: "user", text: data.transcript },
+          { id: createId(), role: "assistant", text: cardLines.join("\n") },
+        ]);
+      }
       setShowVoiceComplete(true);
       if (completeTimeoutRef.current) {
         clearTimeout(completeTimeoutRef.current);
@@ -1039,7 +1073,7 @@ export default function App() {
       completeTimeoutRef.current = setTimeout(() => {
         setShowVoiceComplete(false);
         completeTimeoutRef.current = null;
-      }, 2400);
+      }, 8000);
       const audioPayload = data.audio ?? {
         format: data.audio_mime?.includes("mpeg") ? "mp3" : "wav",
         url: data.audio_url ?? undefined,
@@ -1057,8 +1091,8 @@ export default function App() {
         }
       } else if (data.audio_pending && data.audio_job_id) {
         await pollForAudioJob(data.audio_job_id);
-      } else if (!data.tts_error) {
-        setVoiceError("Audio unavailable. Please try again.");
+      } else {
+        setVoiceError(data.tts_error ?? "Audio unavailable. Please try again.");
       }
     } catch (voiceUploadError) {
       console.error("Voice upload error:", voiceUploadError);
@@ -1514,6 +1548,7 @@ export default function App() {
             <VoiceStage
               state={voiceStageState}
               mode={selectedVoice}
+              preference={preference}
               onPressIn={() => {
                 void startRecording();
               }}
@@ -1550,9 +1585,21 @@ export default function App() {
               <Text style={[styles.voiceValue, { color: activeTheme.voiceLabelText }]}>
                 {voiceTurn.pinyin}
               </Text>
+              {voiceTurn.notes?.length ? (
+                <>
+                  <Text style={[styles.voiceLabel, { color: activeTheme.messageAccentText }]}>
+                    Notes
+                  </Text>
+                  {voiceTurn.notes.map((note, i) => (
+                    <Text key={i} style={[styles.voiceValue, { color: activeTheme.voiceLabelText }]}>
+                      • {note}
+                    </Text>
+                  ))}
+                </>
+              ) : null}
               {voiceTurn.tts_error ? (
                 <Text style={[styles.voiceAudioNote, { color: activeTheme.voiceSupportText }]}>
-                  Audio unavailable
+                  {voiceTurn.tts_error}
                 </Text>
               ) : null}
             </View>
@@ -1571,13 +1618,13 @@ export default function App() {
           }
         />
 
-        <View style={styles.inputBar}>
+        <Animated.View style={[styles.inputBar, { backgroundColor: interpolatedTheme.inputBarBackground, borderTopColor: interpolatedTheme.inputBarBorder }]}>
           <Animated.View
             style={[
               styles.inputShell,
               {
                 backgroundColor: interpolatedTheme.composerBackground,
-                borderColor: activeTheme.composerBorder,
+                borderColor: interpolatedTheme.composerBorder,
                 shadowOpacity: inputFocusAnim.interpolate({
                   inputRange: [0, 1],
                   outputRange: [0.03, 0.1],
@@ -1597,7 +1644,7 @@ export default function App() {
               ]}
               placeholder={preference === "chinese" ? "一起学习吧" : "Let's Learn Together"}
               placeholderTextColor={activeTheme.inputPlaceholder}
-              selectionColor="#A06B43"
+              selectionColor={activeTheme.messageAccentText}
               value={input}
               onChangeText={setInput}
               editable={!isSending}
@@ -1675,7 +1722,7 @@ export default function App() {
               </Pressable>
             </Animated.View>
           </Animated.View>
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1941,9 +1988,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 12,
-    backgroundColor: "#F9F2E8",
     borderTopWidth: 1,
-    borderTopColor: "#EEDCC7",
   },
   inputShell: {
     flex: 1,
