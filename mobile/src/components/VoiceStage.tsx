@@ -67,6 +67,7 @@ const VoiceStage = ({
   const STATE_LABEL = preference === "chinese" ? STATE_LABEL_ZH : STATE_LABEL_EN;
   const pressAnim  = useRef(new Animated.Value(0)).current;
   const pulseAnim  = useRef(new Animated.Value(1)).current;
+  const scale = useRef(pressAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.96] })).current;
 
   const isListening  = state === "listening";
   const isProcessing = state === "processing";
@@ -111,7 +112,6 @@ const VoiceStage = ({
   }, [isProcessing, pulseAnim]);
 
   const { bg, bgPress, border } = MODE_COLORS[mode];
-  const scale = pressAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.96] });
 
   return (
     <View style={styles.container}>
