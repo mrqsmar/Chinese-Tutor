@@ -889,6 +889,11 @@ export default function App() {
       }
       if (status.didJustFinish) {
         setIsPlayingPronunciation(false);
+        if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
+        completeTimeoutRef.current = setTimeout(() => {
+          setShowVoiceComplete(false);
+          completeTimeoutRef.current = null;
+        }, 1500);
       }
     });
     await sound.loadAsync({ uri });
@@ -1049,7 +1054,7 @@ export default function App() {
       completeTimeoutRef.current = setTimeout(() => {
         setShowVoiceComplete(false);
         completeTimeoutRef.current = null;
-      }, 2400);
+      }, 8000);
       const audioPayload = data.audio ?? {
         format: data.audio_mime?.includes("mpeg") ? "mp3" : "wav",
         url: data.audio_url ?? undefined,
@@ -1067,8 +1072,8 @@ export default function App() {
         }
       } else if (data.audio_pending && data.audio_job_id) {
         await pollForAudioJob(data.audio_job_id);
-      } else if (!data.tts_error) {
-        setVoiceError("Audio unavailable. Please try again.");
+      } else {
+        setVoiceError(data.tts_error ?? "Audio unavailable. Please try again.");
       }
     } catch (voiceUploadError) {
       console.error("Voice upload error:", voiceUploadError);
