@@ -642,7 +642,7 @@ export default function App() {
       return "Explain in English, include Chinese + pinyin.";
     }
     if (preference === "chinese") {
-      return "Explain in Chinese, include English + pronunciation tips.";
+      return "用中文讲解，包含英文和发音提示。";
     }
     return "";
   }, [preference]);
