@@ -453,57 +453,47 @@ def _build_intermediate_response(message: str) -> ChatResponse:
     return ChatResponse(reply=reply, teaching=teaching)
 
 
-def _build_system_prompt(speaker: Literal["english", "chinese"]) -> str:
-    base = (
-        "You are a Chinese language tutor. Only help with Chinese ↔ English learning: "
-        "translation, vocabulary, grammar, pronunciation (pinyin), and usage examples. "
-        "If the user asks about unrelated topics (politics, health, coding, math, etc.), "
-        "politely refuse and redirect them to a language-learning alternative. "
-        "Keep replies concise, conversational, and tutor-like. "
-        "Keep replies to a maximum of 5 lines. "
-        "If more info is needed, ask ONE short follow-up question and wait. "
-        "Always include the actual learning output, never vague placeholders. "
-        "Never reply with only meta teaching text (e.g., 'Here is how to say it') without the answer itself. "
-        "Use Simplified Chinese only. "
-        "If the user provides an English phrase or sentence, treat it as a direct translation request and translate it immediately. "
-        "Do NOT ask the user to provide an English sentence if one is already present. "
-        "For beginner tutoring, output this exact labeled format on separate lines: "
-        "Chinese: <hanzi output> "
-        "Pinyin: <tone-marked pinyin> "
-        "Meaning: <plain English meaning/translation> "
-        "Notes (optional): <one short usage tip or context note, only if helpful>. "
-        "Do NOT include character breakdowns. "
-        "Do NOT include multiple examples or long explanations unless the user asks for more detail. "
-        "Provide only one example or tip at a time; do not give multiple examples or tips. "
-        "Split teaching across multiple back-and-forth turns, covering one concept at a time. "
-        "End most responses with a short optional nudge (e.g., “Want an example?”, “Want to practice?”, “Want a casual version?”)."
-    )
-
-    if speaker == "english":
+def _build_system_prompt(speaker: Literal[“english”, “chinese”]) -> str:
+    if speaker == “english”:
         return (
-            base
-            + " Explain in English. Keep pinyin tone-marked (e.g., nǐ hǎo)."
+            “You are a Chinese language tutor. Only help with Chinese ↔ English learning: “
+            “translation, vocabulary, grammar, pronunciation (pinyin), and usage examples. “
+            “If the user asks about unrelated topics (politics, health, coding, math, etc.), “
+            “politely refuse and redirect them to a language-learning alternative. “
+            “Keep replies concise, conversational, and tutor-like. “
+            “Always include the actual learning output, never vague placeholders. “
+            “Never reply with only meta teaching text without the answer itself. “
+            “Use Simplified Chinese only. “
+            “If the user provides an English phrase or sentence, treat it as a direct translation request and translate it immediately. “
+            “Do NOT ask the user to provide an English sentence if one is already present. “
+            “IMPORTANT: If the user asks to learn MULTIPLE words or items (e.g., '1, 2, 3' or 'colors' or 'days of the week'), “
+            “you MUST output ALL of the requested items — never just one. “
+            “Output each item as a separate block in this exact format, separated by ---:\n”
+            “Chinese: <hanzi>\n”
+            “Pinyin: <tone-marked pinyin, e.g. nǐ hǎo>\n”
+            “Meaning: <plain English meaning>\n”
+            “Notes: <optional one-line tip>\n”
+            “---\n”
+            “(Omit --- after the last item. Omit Notes if not helpful.)\n”
+            “For a single item, use the same format without ---.\n”
+            “End most responses with a short nudge (e.g., 'Want to practice?', 'Want the next one?', 'Want an example sentence?').”
         )
 
     return (
-        "你是一位中文导师。你的任务仅限于中文↔英文学习：翻译、词汇、语法、发音（拼音）与例句。"
-        "如果用户问与语言学习无关的话题（政治、健康、编程、数学等），请礼貌拒绝，并引导回到语言学习任务（例如翻译一句话、解释一个短语）。"
-        "保持简洁、对话式、像导师一样。"
-        "每次回复最多5行。"
-        "如果需要更多信息，只问一个简短的追问并等待。"
-        "务必给出实际学习内容，不能用“这样说”但不展示答案。"
-        "禁止只给泛泛教学话术，必须给出具体中文答案。"
-        "只使用简体中文。"
-        "请用固定格式："
-        "Chinese: <汉字答案>"
-        "Pinyin: <带声调拼音>"
-        "Meaning: <英文释义>"
-        "Example (optional): <一个简短例句>。"
-        "不要做汉字拆解。"
-        "除非用户要求更多细节，否则不要给多个例子或长解释。"
-        "一次只给一个例子或提示，不要给多个。"
-        "把教学拆成多轮对话，每次只讲一个点。"
-        "大多数回复以简短可选的引导结尾（例如“要例句吗？/要练习吗？/要更口语的版本吗？”）。"
+        “你是一位英语导师，专门帮助中文母语者学习英语词汇和短语。”
+        “只处理英文↔中文学习相关问题。其他无关话题礼貌拒绝并引导回语言学习。”
+        “回复要简洁、对话式、像导师一样。”
+        “重要规则：当用户要求学习多个词语或数字（如：一、二、三 或 1、2、3），”
+        “必须列出用户要求的每一个词，用 --- 分隔每个词条，绝对不能只给一个。”
+        “每个词条使用以下固定格式，每行一个字段：\n”
+        “Chinese: <英语单词，例如：one>\n”
+        “Pinyin: <简单发音提示，例如：wun>\n”
+        “Meaning: <中文含义，例如：一>\n”
+        “---\n”
+        “（最后一个词条不需要 ---）\n”
+        “Chinese 字段写英语单词，Meaning 字段写中文含义，Pinyin 字段写简单发音提示帮助中文母语者记忆。\n”
+        “不要做单词拆解，不要长篇解释，除非用户要求。\n”
+        “大多数回复以简短引导结尾（如”要例句吗？””要练习发音吗？””继续下一个吗？”）。”
     )
 
 
@@ -516,25 +506,28 @@ def _extract_labeled_value(text: str, label: str) -> str:
     return (match.group(1).strip() if match else "")
 
 
-def _is_structured_beginner_reply(text: str) -> bool:
-    chinese = _extract_labeled_value(text, "chinese")
-    pinyin = _extract_labeled_value(text, "pinyin")
-    meaning = _extract_labeled_value(text, "meaning|english|translation")
-    return bool(
-        chinese
-        and pinyin
-        and meaning
-        and HAN_REGEX.search(chinese)
-        and TONE_MARK_REGEX.search(pinyin)
-    )
+def _is_structured_beginner_reply(text: str, speaker: str = "english") -> bool:
+    # Validate against the first block only (handles multi-item --- responses)
+    first_block = text.split("---")[0].strip()
+    chinese = _extract_labeled_value(first_block, "chinese")
+    pinyin = _extract_labeled_value(first_block, "pinyin|pronunciation")
+    meaning = _extract_labeled_value(first_block, "meaning|english|translation")
+    if not (chinese and pinyin and meaning):
+        return False
+    if speaker == "english":
+        # Chinese field must have Han characters; pinyin must have tone marks
+        return bool(HAN_REGEX.search(chinese) and TONE_MARK_REGEX.search(pinyin))
+    # Chinese mode: Chinese field has English word; Meaning field must have Han characters
+    return bool(HAN_REGEX.search(meaning))
 
 
-def _normalize_structured_reply(text: str) -> str:
-    chinese = _extract_labeled_value(text, "chinese")
-    pinyin = _extract_labeled_value(text, "pinyin")
-    meaning = _extract_labeled_value(text, "meaning|english|translation")
-    notes = _extract_labeled_value(text, "notes|note|example")
-
+def _normalize_block(block: str) -> str:
+    chinese = _extract_labeled_value(block, "chinese")
+    pinyin = _extract_labeled_value(block, "pinyin|pronunciation")
+    meaning = _extract_labeled_value(block, "meaning|english|translation")
+    notes = _extract_labeled_value(block, "notes|note|example")
+    if not chinese:
+        return ""
     lines = [
         f"Chinese: {chinese}",
         f"Pinyin: {pinyin}",
@@ -543,6 +536,13 @@ def _normalize_structured_reply(text: str) -> str:
     if notes:
         lines.append(f"Notes: {notes}")
     return "\n".join(lines)
+
+
+def _normalize_structured_reply(text: str) -> str:
+    blocks = [b.strip() for b in text.split("---") if b.strip()]
+    normalized = [_normalize_block(b) for b in blocks]
+    normalized = [n for n in normalized if n]
+    return "\n---\n".join(normalized) if normalized else text
 
 
 async def _generate_chat_reply(
@@ -618,7 +618,7 @@ async def llm_chat(
     system_prompt = _build_system_prompt(request.speaker)
     payload = {
         "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "generationConfig": {"maxOutputTokens": 300},
+        "generationConfig": {"maxOutputTokens": 600},
         "contents": [
             {
                 "role": "model" if message.role == "assistant" else "user",
@@ -646,31 +646,29 @@ async def llm_chat(
             content = await _generate_chat_reply(client=client, api_key=api_key, payload=payload)
             logger.info("Primary Gemini response preview: %s", content[:300])
 
-            if not _is_structured_beginner_reply(content):
+            if not _is_structured_beginner_reply(content, request.speaker):
                 logger.warning("Primary Gemini response is not structured beginner format.")
+                if request.speaker == "english":
+                    repair_instruction = (
+                        "Rewrite into strict beginner Chinese tutoring format. "
+                        "If multiple items were requested, output ALL of them separated by ---. "
+                        "For each item use exactly these lines:\n"
+                        "Chinese: <hanzi>\nPinyin: <tone-marked pinyin>\nMeaning: <English meaning>\nNotes: <optional tip>\n---\n"
+                        "(No --- after the last item.) "
+                        "If user input is an English sentence, translate it into Chinese directly. "
+                        "Rules: concrete Simplified Chinese, tone-marked pinyin, plain English meaning. No vague text."
+                    )
+                else:
+                    repair_instruction = (
+                        "按以下格式改写，教英语给中文母语者。如果用户要求多个词，必须全部列出，用 --- 分隔。"
+                        "每个词条格式：\nChinese: <英语单词>\nPinyin: <发音提示>\nMeaning: <中文含义>\n---\n"
+                        "（最后一个不需要 ---）。Chinese 字段写英语单词，Meaning 字段写中文。不要只给一个词。"
+                    )
                 repair_payload = {
                     "systemInstruction": {
-                        "parts": [
-                            {
-                                "text": (
-                                    "Rewrite into strict beginner Chinese tutoring format. "
-                                    "Return only these lines: "
-                                    "Chinese: ...\n"
-                                    "Pinyin: ...\n"
-                                    "Meaning: ...\n"
-                                    "Notes: ... (optional)\n"
-                                    "If user input is an English sentence (for example: "
-                                    "'Can I have 3 orders of siu mai?', "
-                                    "'I'd like 2 waters', "
-                                    "'Where is the bathroom?'), directly translate it into Chinese. "
-                                    "Do not ask the user to provide an English sentence. "
-                                    "Rules: include concrete Simplified Chinese answer, tone-marked pinyin, and plain English meaning. "
-                                    "No vague text."
-                                )
-                            }
-                        ]
+                        "parts": [{"text": repair_instruction}]
                     },
-                    "generationConfig": {"maxOutputTokens": 160, "temperature": 0.1},
+                    "generationConfig": {"maxOutputTokens": 400, "temperature": 0.1},
                     "contents": [
                         {
                             "role": "user",
@@ -692,7 +690,7 @@ async def llm_chat(
                 )
                 logger.info("Repair Gemini call completed")
                 logger.info("Repaired Gemini response preview: %s", repaired[:300])
-                content = repaired if _is_structured_beginner_reply(repaired) else (
+                content = repaired if _is_structured_beginner_reply(repaired, request.speaker) else (
                     "Chinese: 请再试一次\n"
                     "Pinyin: Qǐng zài shì yī cì\n"
                     "Meaning: Something went wrong. Please try your question again."
