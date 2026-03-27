@@ -17,13 +17,22 @@
     },
     "android": {
       "permissions": [
-        "RECORD_AUDIO"
-      ]
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "package": "com.chinesetutor.app"
     },
     "plugins": [
       "expo-audio",
       "expo-video",
       "expo-secure-store"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "759d0337-101b-4bee-a253-a6117e5f8f5d"
+      }
+    },
+    "owner": "mrqsmar"
   }
 }
