@@ -300,7 +300,7 @@ const useMicroButton = () => {
         toValue: toBrightness,
         duration: 160,
         easing: Easing.out(Easing.quad),
-        useNativeDriver: false,
+        useNativeDriver: true,
       }),
     ]).start();
   }, [brightness, scale]);
