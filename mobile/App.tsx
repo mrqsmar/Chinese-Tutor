@@ -1015,7 +1015,7 @@ export default function App() {
         type: "audio/mp4",
       } as any);
       formData.append("level", "beginner");
-      formData.append("scenario", "restaurant");
+      formData.append("scenario", "general");
       const sourceLang = preference === "chinese" ? "zh" : "en";
       const targetLang = preference === "chinese" ? "en" : "zh";
       formData.append("source_lang", sourceLang);
@@ -1047,6 +1047,21 @@ export default function App() {
       const data = JSON.parse(raw) as SpeechTurnResponse;
       console.log("Voice Response Payload:", data);
       setVoiceTurn(data);
+
+      // Add voice turn to chat so the tutor has context for follow-up
+      if (data.intent === "translate_request" && data.chinese) {
+        const cardLines = [
+          `Chinese: ${data.chinese}`,
+          `Pinyin: ${data.pinyin ?? ""}`,
+          `English: ${data.transcript}`,
+        ];
+        if (data.notes?.length) cardLines.push(`Notes: ${data.notes[0]}`);
+        setMessages((prev) => [
+          ...prev,
+          { id: createId(), role: "user", text: data.transcript },
+          { id: createId(), role: "assistant", text: cardLines.join("\n") },
+        ]);
+      }
       setShowVoiceComplete(true);
       if (completeTimeoutRef.current) {
         clearTimeout(completeTimeoutRef.current);
@@ -1565,9 +1580,21 @@ export default function App() {
               <Text style={[styles.voiceValue, { color: activeTheme.voiceLabelText }]}>
                 {voiceTurn.pinyin}
               </Text>
+              {voiceTurn.notes?.length ? (
+                <>
+                  <Text style={[styles.voiceLabel, { color: activeTheme.messageAccentText }]}>
+                    Notes
+                  </Text>
+                  {voiceTurn.notes.map((note, i) => (
+                    <Text key={i} style={[styles.voiceValue, { color: activeTheme.voiceLabelText }]}>
+                      • {note}
+                    </Text>
+                  ))}
+                </>
+              ) : null}
               {voiceTurn.tts_error ? (
                 <Text style={[styles.voiceAudioNote, { color: activeTheme.voiceSupportText }]}>
-                  Audio unavailable
+                  {voiceTurn.tts_error}
                 </Text>
               ) : null}
             </View>
