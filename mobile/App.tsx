@@ -656,7 +656,7 @@ export default function App() {
       return "Hi! I’m your Chinese tutor. Say hello or tell me what you want to practice.";
     }
     if (preference === "chinese") {
-      return "Hello! I'm your Chinese tutor. Say hello, or tell me what you'd like to practice.";
+      return "Chinese: Hello! I’m your English tutor.\nEnglish: 你好！我是你的英语导师，告诉我你想练什么吧。";
     }
     return "";
   }, [preference]);
