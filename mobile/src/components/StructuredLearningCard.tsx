@@ -1,5 +1,5 @@
 import { Animated, Pressable, StyleSheet, Text, View } from "react-native";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useRef } from "react";
 
 type CardData = {
   chinese: string;
@@ -170,13 +170,12 @@ const SingleCard = ({
     return () => clearTimeout(timer);
   }, [entrance, delay]);
 
-  const cardStyle = useMemo(
-    () => ({
-      opacity: entrance,
-      transform: [{ translateY: entranceTranslateY }],
-    }),
-    [entrance, entranceTranslateY]
-  );
+  // Store animated style in useRef instead of useMemo to prevent React 19
+  // from freezing the Animated nodes' internal _children arrays.
+  const cardStyle = useRef({
+    opacity: entrance,
+    transform: [{ translateY: entranceTranslateY }],
+  }).current;
 
   const isZh = mode === "chinese";
   const primaryLabel = isZh ? "ENGLISH" : "CHINESE";

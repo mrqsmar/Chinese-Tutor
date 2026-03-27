@@ -210,6 +210,12 @@ const MessageBubble = ({
 }) => {
   const entrance = useRef(new Animated.Value(0)).current;
   const entranceTranslateY = useRef(entrance.interpolate({ inputRange: [0, 1], outputRange: [10, 0] })).current;
+  // Keep animated style in a stable ref so Animated.View doesn't detach/reattach
+  // child tracking on every render (which can corrupt frozen _children arrays).
+  const animatedStyle = useRef({
+    opacity: entrance,
+    transform: [{ translateY: entranceTranslateY }],
+  }).current;
 
   useEffect(() => {
     Animated.timing(entrance, {
@@ -231,10 +237,7 @@ const MessageBubble = ({
               borderColor: theme.userMessageBorder,
             }
           : null,
-        {
-          opacity: entrance,
-          transform: [{ translateY: entranceTranslateY }],
-        },
+        animatedStyle,
       ]}
     >
       {item.isTyping ? (
@@ -670,7 +673,17 @@ export default function App() {
     return "";
   }, [preference]);
 
-  const interpolatedTheme = useMemo(() => {
+  // Use useRef-based caching instead of useMemo for the interpolated theme.
+  // Animated.Interpolation nodes are mutable (they track _children internally);
+  // storing them in useMemo risks React 19 freezing their internal arrays in DEV,
+  // which causes "cannot add a new property" when Animated.View tries to attach.
+  const interpolatedThemeCache = useRef<{
+    key: string;
+    theme: { [K in keyof ModeTheme]: Animated.AnimatedInterpolation<string> };
+  } | null>(null);
+
+  const themeKey = `${themeFrom}|${themeTo}`;
+  if (!interpolatedThemeCache.current || interpolatedThemeCache.current.key !== themeKey) {
     const fromTheme = MODE_THEMES[themeFrom];
     const toTheme = MODE_THEMES[themeTo];
     const interpolateColor = (key: keyof ModeTheme) =>
@@ -679,36 +692,41 @@ export default function App() {
         outputRange: [fromTheme[key], toTheme[key]],
       });
 
-    return {
-      gradientTop: interpolateColor("gradientTop"),
-      gradientBottom: interpolateColor("gradientBottom"),
-      blobPrimary: interpolateColor("blobPrimary"),
-      blobSecondary: interpolateColor("blobSecondary"),
-      headerSurface: interpolateColor("headerSurface"),
-      headerGlow: interpolateColor("headerGlow"),
-      headerAccentTrack: interpolateColor("headerAccentTrack"),
-      headerAccentLine: interpolateColor("headerAccentLine"),
-      surfaceTint: interpolateColor("surfaceTint"),
-      surfaceBorder: interpolateColor("surfaceBorder"),
-      titleText: interpolateColor("titleText"),
-      subtitleText: interpolateColor("subtitleText"),
-      voiceLabelText: interpolateColor("voiceLabelText"),
-      voiceSupportText: interpolateColor("voiceSupportText"),
-      inputBarBackground: interpolateColor("inputBarBackground"),
-      inputBarBorder: interpolateColor("inputBarBorder"),
-      composerBackground: interpolateColor("composerBackground"),
-      composerBorder: interpolateColor("composerBorder"),
-      inputText: interpolateColor("inputText"),
-      inputPlaceholder: interpolateColor("inputPlaceholder"),
-      sendButtonBackground: interpolateColor("sendButtonBackground"),
-      sendButtonBorder: interpolateColor("sendButtonBorder"),
-      sendButtonText: interpolateColor("sendButtonText"),
-      userMessageBackground: interpolateColor("userMessageBackground"),
-      userMessageBorder: interpolateColor("userMessageBorder"),
-      userMessageText: interpolateColor("userMessageText"),
-      messageAccentText: interpolateColor("messageAccentText"),
+    interpolatedThemeCache.current = {
+      key: themeKey,
+      theme: {
+        gradientTop: interpolateColor("gradientTop"),
+        gradientBottom: interpolateColor("gradientBottom"),
+        blobPrimary: interpolateColor("blobPrimary"),
+        blobSecondary: interpolateColor("blobSecondary"),
+        headerSurface: interpolateColor("headerSurface"),
+        headerGlow: interpolateColor("headerGlow"),
+        headerAccentTrack: interpolateColor("headerAccentTrack"),
+        headerAccentLine: interpolateColor("headerAccentLine"),
+        surfaceTint: interpolateColor("surfaceTint"),
+        surfaceBorder: interpolateColor("surfaceBorder"),
+        titleText: interpolateColor("titleText"),
+        subtitleText: interpolateColor("subtitleText"),
+        voiceLabelText: interpolateColor("voiceLabelText"),
+        voiceSupportText: interpolateColor("voiceSupportText"),
+        inputBarBackground: interpolateColor("inputBarBackground"),
+        inputBarBorder: interpolateColor("inputBarBorder"),
+        composerBackground: interpolateColor("composerBackground"),
+        composerBorder: interpolateColor("composerBorder"),
+        inputText: interpolateColor("inputText"),
+        inputPlaceholder: interpolateColor("inputPlaceholder"),
+        sendButtonBackground: interpolateColor("sendButtonBackground"),
+        sendButtonBorder: interpolateColor("sendButtonBorder"),
+        sendButtonText: interpolateColor("sendButtonText"),
+        userMessageBackground: interpolateColor("userMessageBackground"),
+        userMessageBorder: interpolateColor("userMessageBorder"),
+        userMessageText: interpolateColor("userMessageText"),
+        messageAccentText: interpolateColor("messageAccentText"),
+      },
     };
-  }, [themeColorProgress, themeFrom, themeTo]);
+  }
+
+  const interpolatedTheme = interpolatedThemeCache.current.theme;
   const activeTheme = MODE_THEMES[selectedVoice];
 
   useEffect(() => {
@@ -1269,13 +1287,24 @@ export default function App() {
     [preference, messages, isSending]
   );
 
-  const renderItem = ({ item }: { item: ChatMessage }) => (
-    <MessageBubble
-      item={item}
-      theme={activeTheme}
-      preference={preference}
-      onSuggestionPress={handleSuggestionPress}
-    />
+  // Shallow-copy each message so FlatList items are plain, unfrozen objects.
+  // React 19 deep-freezes useState values in DEV; passing frozen objects into
+  // Animated-backed list cells can trigger "cannot add a new property".
+  const flatListData = useMemo(
+    () => messages.map((m) => ({ ...m })),
+    [messages]
+  );
+
+  const renderItem = useCallback(
+    ({ item }: { item: ChatMessage }) => (
+      <MessageBubble
+        item={item}
+        theme={activeTheme}
+        preference={preference}
+        onSuggestionPress={handleSuggestionPress}
+      />
+    ),
+    [activeTheme, preference, handleSuggestionPress]
   );
 
   if (isLoadingAppLock) {
@@ -1591,7 +1620,7 @@ export default function App() {
 
         <FlatList
           ref={listRef}
-          data={messages}
+          data={flatListData}
           keyExtractor={(item) => item.id}
           renderItem={renderItem}
           contentContainerStyle={styles.messagesContent}
