@@ -157,6 +157,7 @@ const SingleCard = ({
   delay = 0,
 }: CardData & { mode?: "english" | "chinese"; delay?: number }) => {
   const entrance = useRef(new Animated.Value(0)).current;
+  const entranceTranslateY = useRef(entrance.interpolate({ inputRange: [0, 1], outputRange: [12, 0] })).current;
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -172,16 +173,9 @@ const SingleCard = ({
   const cardStyle = useMemo(
     () => ({
       opacity: entrance,
-      transform: [
-        {
-          translateY: entrance.interpolate({
-            inputRange: [0, 1],
-            outputRange: [12, 0],
-          }),
-        },
-      ],
+      transform: [{ translateY: entranceTranslateY }],
     }),
-    [entrance]
+    [entrance, entranceTranslateY]
   );
 
   const isZh = mode === "chinese";
