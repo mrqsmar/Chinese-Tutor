@@ -76,6 +76,8 @@ type ModeTheme = {
   subtitleText: string;
   voiceLabelText: string;
   voiceSupportText: string;
+  inputBarBackground: string;
+  inputBarBorder: string;
   composerBackground: string;
   composerBorder: string;
   inputText: string;
@@ -336,6 +338,8 @@ const MODE_THEMES: Record<VoiceOption, ModeTheme> = {
     subtitleText: "#9A5A2B",
     voiceLabelText: "#9A3412",
     voiceSupportText: "#92400E",
+    inputBarBackground: "#F9F2E8",
+    inputBarBorder: "#EEDCC7",
     composerBackground: "#FFFDF9",
     composerBorder: "#E7DAC8",
     inputText: "#4A2F1A",
@@ -363,6 +367,8 @@ const MODE_THEMES: Record<VoiceOption, ModeTheme> = {
     subtitleText: "#356281",
     voiceLabelText: "#0C4A6E",
     voiceSupportText: "#1E5B7D",
+    inputBarBackground: "#EBF4FF",
+    inputBarBorder: "#BAD4F5",
     composerBackground: "#F8FCFF",
     composerBorder: "#BFDBFE",
     inputText: "#12344A",
@@ -390,6 +396,8 @@ const MODE_THEMES: Record<VoiceOption, ModeTheme> = {
     subtitleText: "#5B4B84",
     voiceLabelText: "#4C1D95",
     voiceSupportText: "#5B4B84",
+    inputBarBackground: "#EDEAFF",
+    inputBarBorder: "#C4B5FD",
     composerBackground: "#F6F3FF",
     composerBorder: "#C4B5FD",
     inputText: "#34224E",
@@ -673,6 +681,8 @@ export default function App() {
       subtitleText: interpolateColor("subtitleText"),
       voiceLabelText: interpolateColor("voiceLabelText"),
       voiceSupportText: interpolateColor("voiceSupportText"),
+      inputBarBackground: interpolateColor("inputBarBackground"),
+      inputBarBorder: interpolateColor("inputBarBorder"),
       composerBackground: interpolateColor("composerBackground"),
       composerBorder: interpolateColor("composerBorder"),
       inputText: interpolateColor("inputText"),
@@ -1571,13 +1581,13 @@ export default function App() {
           }
         />
 
-        <View style={styles.inputBar}>
+        <Animated.View style={[styles.inputBar, { backgroundColor: interpolatedTheme.inputBarBackground, borderTopColor: interpolatedTheme.inputBarBorder }]}>
           <Animated.View
             style={[
               styles.inputShell,
               {
                 backgroundColor: interpolatedTheme.composerBackground,
-                borderColor: activeTheme.composerBorder,
+                borderColor: interpolatedTheme.composerBorder,
                 shadowOpacity: inputFocusAnim.interpolate({
                   inputRange: [0, 1],
                   outputRange: [0.03, 0.1],
@@ -1675,7 +1685,7 @@ export default function App() {
               </Pressable>
             </Animated.View>
           </Animated.View>
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
     </SafeAreaView>
   );
@@ -1941,9 +1951,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 10,
     paddingBottom: 12,
-    backgroundColor: "#F9F2E8",
     borderTopWidth: 1,
-    borderTopColor: "#EEDCC7",
   },
   inputShell: {
     flex: 1,
