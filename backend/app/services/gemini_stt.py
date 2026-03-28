@@ -73,11 +73,14 @@ class GeminiSTTClient:
         response.raise_for_status()
         data = response.json()
 
-        transcript = (
+        parts = (
             data.get("candidates", [{}])[0]
             .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text")
+            .get("parts", [{}])
+        )
+        transcript = next(
+            (p.get("text") for p in parts if not p.get("thought") and p.get("text")),
+            None,
         )
 
         if not transcript:
@@ -121,12 +124,14 @@ class GeminiSTTClient:
         response.raise_for_status()
         data = response.json()
 
-        cleaned = (
+        parts = (
             data.get("candidates", [{}])[0]
             .get("content", {})
-            .get("parts", [{}])[0]
-            .get("text", "")
-            .strip()
+            .get("parts", [{}])
+        )
+        cleaned = next(
+            (p.get("text", "").strip() for p in parts if not p.get("thought") and p.get("text")),
+            "",
         )
 
         # Fallback safely if model returns nothing
