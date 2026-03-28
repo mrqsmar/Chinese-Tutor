@@ -4,9 +4,7 @@ const APP_LOCK_KEY = "appLockUnlockedAt";
 const DEFAULT_UNLOCK_TTL_MS = 1000 * 60 * 60 * 24; // 24 hours
 
 export const getAppPassword = () => {
-  const pw = process.env.EXPO_PUBLIC_APP_PASSWORD ?? "";
-  console.log("APP PASSWORD:", pw); // remove later (don’t ship secrets)
-  return pw;
+  return process.env.EXPO_PUBLIC_APP_PASSWORD ?? "";
 };
 
 const parseTimestamp = (value: string | null) => {
