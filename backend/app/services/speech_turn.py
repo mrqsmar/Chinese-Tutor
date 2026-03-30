@@ -84,7 +84,7 @@ class GeminiSpeechTurnTextClient:
         payload = {
             "generationConfig": {
                 "temperature": 0.2,
-                "maxOutputTokens": 256,
+                "maxOutputTokens": 512,
                 "responseMimeType": "application/json",
                 "responseSchema": response_schema,
             },
@@ -115,11 +115,16 @@ class GeminiSpeechTurnTextClient:
                 break
 
             data = response.json()
-            content = (
+            parts = (
                 data.get("candidates", [{}])[0]
                 .get("content", {})
-                .get("parts", [{}])[0]
-                .get("text")
+                .get("parts", [{}])
+            )
+            # Gemini 2.5+ may include thinking tokens (thought=True) before the
+            # actual response part.  Skip those and grab the first real text part.
+            content = next(
+                (p.get("text") for p in parts if not p.get("thought") and p.get("text")),
+                None,
             )
             if not content:
                 raise ValueError("Gemini text generation returned no content.")
