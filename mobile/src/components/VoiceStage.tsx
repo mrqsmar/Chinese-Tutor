@@ -22,14 +22,13 @@ type VoiceStageProps = {
   onPressIn: () => void;
   onPressOut: () => void;
   disabled?: boolean;
-  size?: number;
   preference?: "english" | "chinese" | null;
 };
 
-const MODE_COLORS: Record<VoiceTone, { bg: string; bgPress: string; border: string }> = {
-  warm:   { bg: "#8F5A33", bgPress: "#6B3D20", border: "#7B4925" },
-  bright: { bg: "#0369A1", bgPress: "#024E7A", border: "#075985" },
-  deep:   { bg: "#5B21B6", bgPress: "#3D1491", border: "#4C1D95" },
+const MODE_COLORS: Record<VoiceTone, { bg: string; bgPress: string; border: string; ring: string }> = {
+  warm:   { bg: "#8F5A33", bgPress: "#6B3D20", border: "#7B4925", ring: "rgba(143, 90, 51, 0.15)" },
+  bright: { bg: "#0369A1", bgPress: "#024E7A", border: "#075985", ring: "rgba(3, 105, 161, 0.15)" },
+  deep:   { bg: "#5B21B6", bgPress: "#3D1491", border: "#4C1D95", ring: "rgba(91, 33, 182, 0.15)" },
 };
 
 const STATE_ICON: Record<VoiceStageState, string> = {
@@ -56,6 +55,8 @@ const STATE_LABEL_ZH: Record<VoiceStageState, string> = {
   complete:   "完成",
 };
 
+const BUTTON_SIZE = 120;
+
 const VoiceStage = ({
   state,
   mode,
@@ -67,7 +68,8 @@ const VoiceStage = ({
   const STATE_LABEL = preference === "chinese" ? STATE_LABEL_ZH : STATE_LABEL_EN;
   const pressAnim  = useRef(new Animated.Value(0)).current;
   const pulseAnim  = useRef(new Animated.Value(1)).current;
-  const scale = useRef(pressAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.96] })).current;
+  const ringAnim   = useRef(new Animated.Value(0)).current;
+  const scale = useRef(pressAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.92] })).current;
 
   const isListening  = state === "listening";
   const isProcessing = state === "processing";
@@ -80,6 +82,29 @@ const VoiceStage = ({
       useNativeDriver: true,
     }).start();
   }, [isListening, pressAnim]);
+
+  useEffect(() => {
+    if (isListening) {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(ringAnim, {
+            toValue: 1,
+            duration: 1200,
+            easing: Easing.out(Easing.ease),
+            useNativeDriver: true,
+          }),
+          Animated.timing(ringAnim, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
+      return () => loop.stop();
+    }
+    ringAnim.setValue(0);
+  }, [isListening, ringAnim]);
 
   useEffect(() => {
     if (!isProcessing) {
@@ -111,54 +136,84 @@ const VoiceStage = ({
     return () => loop.stop();
   }, [isProcessing, pulseAnim]);
 
-  const { bg, bgPress, border } = MODE_COLORS[mode];
+  const { bg, bgPress, border, ring } = MODE_COLORS[mode];
+
+  const ringScale = ringAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [1, 1.6],
+  });
+  const ringOpacity = ringAnim.interpolate({
+    inputRange: [0, 0.8, 1],
+    outputRange: [0.5, 0.1, 0],
+  });
 
   return (
     <View style={styles.container}>
+      {isListening ? (
+        <Animated.View
+          style={[
+            styles.ring,
+            {
+              backgroundColor: ring,
+              transform: [{ scale: ringScale }],
+              opacity: ringOpacity,
+            },
+          ]}
+        />
+      ) : null}
       <Animated.View style={{ transform: [{ scale }], opacity: pulseAnim }}>
         <Pressable
           style={[
-            styles.pill,
+            styles.button,
             { backgroundColor: isListening ? bgPress : bg, borderColor: border },
+            disabled && styles.buttonDisabled,
           ]}
           onPressIn={onPressIn}
           onPressOut={onPressOut}
           disabled={disabled}
         >
           <Text style={styles.icon}>{STATE_ICON[state]}</Text>
-          <Text style={styles.label}>{STATE_LABEL[state]}</Text>
         </Pressable>
       </Animated.View>
+      <Text style={[styles.label, { color: bg }]}>{STATE_LABEL[state]}</Text>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 20,
     alignItems: "center",
+    justifyContent: "center",
   },
-  pill: {
-    flexDirection: "row",
+  ring: {
+    position: "absolute",
+    width: BUTTON_SIZE,
+    height: BUTTON_SIZE,
+    borderRadius: BUTTON_SIZE / 2,
+  },
+  button: {
+    width: BUTTON_SIZE,
+    height: BUTTON_SIZE,
+    borderRadius: BUTTON_SIZE / 2,
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 32,
-    paddingVertical: 16,
-    borderRadius: 999,
-    borderWidth: 1,
+    justifyContent: "center",
+    borderWidth: 2,
     shadowColor: "#000",
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
+  },
+  buttonDisabled: {
+    opacity: 0.4,
   },
   icon: {
-    fontSize: 18,
+    fontSize: 36,
   },
   label: {
+    marginTop: 14,
     fontSize: 15,
     fontWeight: "600",
-    color: "#FFFFFF",
     letterSpacing: 0.2,
   },
 });

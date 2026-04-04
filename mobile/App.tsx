@@ -1,44 +1,75 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  NativeSyntheticEvent,
   Animated,
   Easing,
-  FlatList,
-  TextInputKeyPressEventData,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   SafeAreaView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
 import LockScreen from "./src/components/LockScreen";
-import StructuredLearningCard, {
-  MultiCardGroup,
-  parseMultipleCards,
-} from "./src/components/StructuredLearningCard";
 import VoiceStage, { type VoiceStageState } from "./src/components/VoiceStage";
 import {
   clearUnlock,
   hasValidUnlock,
   persistUnlock,
 } from "./src/config/appLock";
-import type { ChatMessage } from "./src/types/chat";
 import { assertApiBaseUrl, logApiBaseUrl } from "./src/config/api";
 import { apiFetch, apiFetchWithTimeout } from "./src/config/apiClient";
 import { login, logout, refreshSession } from "./src/config/auth";
 
 const STORAGE_KEY = "speakerPreference";
-const TYPING_INTERVAL_MS = 18;
+
+const DAILY_PHRASES = [
+  { chinese: "你好", pinyin: "nǐ hǎo", english: "Hello" },
+  { chinese: "谢谢", pinyin: "xiè xiè", english: "Thank you" },
+  { chinese: "再见", pinyin: "zài jiàn", english: "Goodbye" },
+  { chinese: "早上好", pinyin: "zǎo shàng hǎo", english: "Good morning" },
+  { chinese: "晚安", pinyin: "wǎn ān", english: "Good night" },
+  { chinese: "对不起", pinyin: "duì bù qǐ", english: "I'm sorry" },
+  { chinese: "没关系", pinyin: "méi guān xì", english: "It's okay" },
+  { chinese: "请问", pinyin: "qǐng wèn", english: "Excuse me" },
+  { chinese: "加油", pinyin: "jiā yóu", english: "You can do it!" },
+  { chinese: "太好了", pinyin: "tài hǎo le", english: "That's great!" },
+  { chinese: "我喜欢", pinyin: "wǒ xǐ huān", english: "I like it" },
+  { chinese: "多少钱", pinyin: "duō shǎo qián", english: "How much?" },
+  { chinese: "不客气", pinyin: "bú kè qì", english: "You're welcome" },
+  { chinese: "慢慢来", pinyin: "màn màn lái", english: "Take your time" },
+  { chinese: "吃饭了吗", pinyin: "chī fàn le ma", english: "Have you eaten?" },
+  { chinese: "开心", pinyin: "kāi xīn", english: "Happy" },
+  { chinese: "朋友", pinyin: "péng yǒu", english: "Friend" },
+  { chinese: "学习", pinyin: "xué xí", english: "To study" },
+  { chinese: "辛苦了", pinyin: "xīn kǔ le", english: "Thanks for your hard work" },
+  { chinese: "一起走吧", pinyin: "yī qǐ zǒu ba", english: "Let's go together" },
+  { chinese: "好久不见", pinyin: "hǎo jiǔ bú jiàn", english: "Long time no see" },
+  { chinese: "明天见", pinyin: "míng tiān jiàn", english: "See you tomorrow" },
+  { chinese: "我来了", pinyin: "wǒ lái le", english: "I'm here" },
+  { chinese: "别担心", pinyin: "bié dān xīn", english: "Don't worry" },
+  { chinese: "没问题", pinyin: "méi wèn tí", english: "No problem" },
+  { chinese: "真棒", pinyin: "zhēn bàng", english: "Awesome!" },
+  { chinese: "下次再说", pinyin: "xià cì zài shuō", english: "Let's talk next time" },
+  { chinese: "随便你", pinyin: "suí biàn nǐ", english: "Up to you" },
+  { chinese: "我知道了", pinyin: "wǒ zhī dào le", english: "I understand" },
+  { chinese: "你真厉害", pinyin: "nǐ zhēn lì hài", english: "You're amazing" },
+  { chinese: "路上小心", pinyin: "lù shàng xiǎo xīn", english: "Be safe on the road" },
+];
+
+const getDailyPhrase = () => {
+  const startOfYear = new Date(new Date().getFullYear(), 0, 0).getTime();
+  const now = new Date().getTime();
+  const dayOfYear = Math.floor((now - startOfYear) / 86400000);
+  return DAILY_PHRASES[dayOfYear % DAILY_PHRASES.length];
+};
 
 const isTruthy = (value: string | undefined) =>
   ["1", "true", "yes", "on"].includes((value ?? "").toLowerCase());
@@ -50,8 +81,6 @@ const CHATBOT_ONLY_MODE = isTruthy(
 const REQUIRE_AUTH =
   isTruthy(process.env.EXPO_PUBLIC_REQUIRE_AUTH) &&
   process.env.NODE_ENV === "production";
-
-const createId = () => Math.random().toString(36).slice(2, 10);
 
 const wait = (ms: number) =>
   new Promise((resolve) => {
@@ -113,58 +142,6 @@ type SpeechTurnResponse = {
   tts_error?: string | null;
 };
 
-const TypingIndicator = () => {
-  const dotAnims = useRef([
-    new Animated.Value(0.35),
-    new Animated.Value(0.35),
-    new Animated.Value(0.35),
-  ]).current;
-  const dotTranslateYAnims = useRef(
-    dotAnims.map((anim) => anim.interpolate({ inputRange: [0.35, 1], outputRange: [0, -2] }))
-  ).current;
-
-  useEffect(() => {
-    const loops = dotAnims.map((anim, index) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(index * 140),
-          Animated.timing(anim, {
-            toValue: 1,
-            duration: 220,
-            useNativeDriver: true,
-          }),
-          Animated.timing(anim, {
-            toValue: 0.35,
-            duration: 220,
-            useNativeDriver: true,
-          }),
-        ])
-      )
-    );
-
-    loops.forEach((loop) => loop.start());
-    return () => loops.forEach((loop) => loop.stop());
-  }, [dotAnims]);
-
-  return (
-    <View style={styles.typingDotsRow}>
-      {dotAnims.map((anim, index) => (
-        <Animated.View
-          key={index}
-          style={[
-            styles.typingDot,
-            {
-              opacity: anim,
-              transform: [{ translateY: dotTranslateYAnims[index] }],
-            },
-          ]}
-        />
-      ))}
-      <Text style={styles.typingText}>Translating your phrase...</Text>
-    </View>
-  );
-};
-
 const LoadingState = ({
   title,
   subtitle,
@@ -179,103 +156,6 @@ const LoadingState = ({
   </SafeAreaView>
 );
 
-const EmptyChatState = ({ preference }: { preference: SpeakerPreference }) => (
-  <View style={styles.emptyStateCard}>
-    <Text style={styles.emptyStateEyebrow}>
-      {preference === "chinese" ? "开始学习" : "Start learning"}
-    </Text>
-    <Text style={styles.emptyStateTitle}>
-      {preference === "chinese"
-        ? "说一句中文，或者打一句话。"
-        : "Say one phrase out loud or type one."}
-    </Text>
-    <Text style={styles.emptyStateBody}>
-      {preference === "chinese"
-        ? '试试：”你好是什么意思？”或”1、2、3用英文怎么说？”'
-        : "Try: \"How do I say nice to meet you?\" or \"1, 2, 3 in Chinese.\""}
-    </Text>
-  </View>
-);
-
-const MessageBubble = ({
-  item,
-  theme,
-  preference,
-  onSuggestionPress,
-}: {
-  item: ChatMessage;
-  theme: ModeTheme;
-  preference: "english" | "chinese" | null;
-  onSuggestionPress: (text: string) => void;
-}) => {
-  const entrance = useRef(new Animated.Value(0)).current;
-  const entranceTranslateY = useRef(entrance.interpolate({ inputRange: [0, 1], outputRange: [10, 0] })).current;
-  // Keep animated style in a stable ref so Animated.View doesn't detach/reattach
-  // child tracking on every render (which can corrupt frozen _children arrays).
-  const animatedStyle = useRef({
-    opacity: entrance,
-    transform: [{ translateY: entranceTranslateY }],
-  }).current;
-
-  useEffect(() => {
-    Animated.timing(entrance, {
-      toValue: 1,
-      duration: 300,
-      useNativeDriver: true,
-      easing: Easing.out(Easing.cubic),
-    }).start();
-  }, [entrance]);
-
-  return (
-    <Animated.View
-      style={[
-        styles.messageBubble,
-        item.role === "user" ? styles.userBubble : styles.botBubble,
-        item.role === "user"
-          ? {
-              backgroundColor: theme.userMessageBackground,
-              borderColor: theme.userMessageBorder,
-            }
-          : null,
-        animatedStyle,
-      ]}
-    >
-      {item.isTyping ? (
-        <TypingIndicator />
-      ) : item.role === "assistant" ? (() => {
-          const cards = parseMultipleCards(item.text);
-          const mode = preference ?? "english";
-          if (cards.length > 1) {
-            return (
-              <MultiCardGroup
-                cards={cards}
-                mode={mode}
-                onSuggestionPress={onSuggestionPress}
-              />
-            );
-          }
-          return (
-            <StructuredLearningCard
-              {...cards[0]}
-              mode={mode}
-              onSuggestionPress={onSuggestionPress}
-            />
-          );
-        })() : (
-        <Text
-          style={[
-            item.role === "user" ? styles.userText : styles.botText,
-            item.role === "user"
-              ? { color: theme.userMessageText }
-              : { color: theme.messageAccentText },
-          ]}
-        >
-          {item.text}
-        </Text>
-      )}
-    </Animated.View>
-  );
-};
 
 const useMicroButton = () => {
   const scale = useRef(new Animated.Value(1)).current;
@@ -450,8 +330,6 @@ const Onboarding = ({
 };
 
 export default function App() {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
   const [preference, setPreference] = useState<SpeakerPreference | null>(null);
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
   const [isAppUnlocked, setIsAppUnlocked] = useState(false);
@@ -462,7 +340,6 @@ export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [isAuthSubmitting, setIsAuthSubmitting] = useState(false);
-  const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [micPermission, setMicPermission] =
     useState<MicPermissionState>("undetermined");
@@ -473,13 +350,9 @@ export default function App() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
-  const [isInputFocused, setIsInputFocused] = useState(false);
-  const listRef = useRef<FlatList<ChatMessage>>(null);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const inputFocusAnim = useRef(new Animated.Value(0)).current;
-  const sendBurstAnim = useRef(new Animated.Value(0)).current;
   const stageTransition = useRef(new Animated.Value(0)).current;
   const ambientDriftA = useRef(new Animated.Value(0)).current;
   const ambientDriftB = useRef(new Animated.Value(0)).current;
@@ -495,11 +368,6 @@ export default function App() {
   const headerEntranceTranslateY = useRef(headerEntrance.interpolate({ inputRange: [0, 1], outputRange: [10, 0] })).current;
   const stageTransitionOpacity = useRef(stageTransition.interpolate({ inputRange: [0, 1, 2, 3], outputRange: [1, 0.96, 0.95, 0.98] })).current;
   const stageTransitionTranslateY = useRef(stageTransition.interpolate({ inputRange: [0, 1, 2, 3], outputRange: [0, -1, -2, -1] })).current;
-  const inputFocusShadowOpacity = useRef(inputFocusAnim.interpolate({ inputRange: [0, 1], outputRange: [0.03, 0.1] })).current;
-  const inputFocusShadowRadius = useRef(inputFocusAnim.interpolate({ inputRange: [0, 1], outputRange: [5, 12] })).current;
-  const sendBurstTranslateXOuter = useRef(sendBurstAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 2] })).current;
-  const sendBurstTranslateXInner = useRef(sendBurstAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 5] })).current;
-  const sendBurstOpacity = useRef(sendBurstAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.88] })).current;
 
   useEffect(() => {
     logApiBaseUrl("App start");
@@ -610,7 +478,6 @@ export default function App() {
 
   const handleSwitchLanguage = async (next: SpeakerPreference) => {
     if (next === preference) return;
-    setMessages([]);
     setVoiceTurn(null);
     setVoiceError(null);
     setPreference(next);
@@ -642,7 +509,6 @@ export default function App() {
 
   const handleLogout = async () => {
     await logout();
-    setMessages([]);
     setVoiceTurn(null);
     setVoiceError(null);
     setPreference(null);
@@ -650,165 +516,7 @@ export default function App() {
     setIsAuthenticated(false);
   };
 
-  const systemHint = useMemo(() => {
-    if (preference === "english") {
-      return "Explain in English, include Chinese + pinyin.";
-    }
-    if (preference === "chinese") {
-      return "用中文讲解，包含英文和发音提示。";
-    }
-    return "";
-  }, [preference]);
-
-  const welcomeMessage = useMemo(() => {
-    if (preference === "english") {
-      return "Hi! I’m your Chinese tutor. Say hello or tell me what you want to practice.";
-    }
-    if (preference === "chinese") {
-      return "Chinese: Hello! I’m your English tutor.\nEnglish: 你好！我是你的英语导师，告诉我你想练什么吧。";
-    }
-    return "";
-  }, [preference]);
-
-  // Use the active theme directly instead of Animated.Interpolation color nodes.
-  // React Native 0.81 + React 19 strict mode causes string-based interpolation
-  // nodes' internal _children arrays to become non-extensible after the first
-  // attach-detach cycle, triggering "cannot add a new property" errors.
   const activeTheme = MODE_THEMES[selectedVoice];
-
-  useEffect(() => {
-    if (!preference || messages.length > 0) {
-      return;
-    }
-
-    setMessages([
-      {
-        id: createId(),
-        role: "assistant",
-        text: welcomeMessage,
-      },
-    ]);
-  }, [messages.length, preference, welcomeMessage]);
-
-  const streamAssistantResponse = useCallback(
-    (messageId: string, fullText: string) => {
-      let index = 0;
-      const interval = setInterval(() => {
-        index += 1;
-        setMessages((prev) =>
-          prev.map((message) =>
-            message.id === messageId
-              ? { ...message, text: fullText.slice(0, index) }
-              : message
-          )
-        );
-        if (index >= fullText.length) {
-          clearInterval(interval);
-        }
-      }, TYPING_INTERVAL_MS);
-    },
-    []
-  );
-
-  const sendMessage = async (overrideText?: string) => {
-    const trimmed = (overrideText ?? input).trim();
-    if (!trimmed || isSending || !preference) {
-      return;
-    }
-
-    const userMessage: ChatMessage = {
-      id: createId(),
-      role: "user",
-      text: trimmed,
-    };
-
-    const typingMessage: ChatMessage = {
-      id: createId(),
-      role: "assistant",
-      text: "",
-      isTyping: true,
-    };
-
-    const conversation = [...messages, userMessage];
-
-    setMessages([...conversation, typingMessage]);
-    if (!overrideText) setInput("");
-    setIsSending(true);
-    setError(null);
-    sendBurstAnim.setValue(0);
-    Animated.sequence([
-      Animated.timing(sendBurstAnim, {
-        toValue: 1,
-        duration: 180,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }),
-      Animated.timing(sendBurstAnim, {
-        toValue: 0,
-        duration: 220,
-        easing: Easing.out(Easing.quad),
-        useNativeDriver: true,
-      }),
-    ]).start();
-
-    try {
-      logApiBaseUrl("Chat request");
-      const response = await apiFetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          speaker: preference, // "english" | "chinese"
-          messages: conversation.map((m) => ({
-            role: m.role, // "user" | "assistant"
-            content: m.text,
-          })),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to fetch response");
-      }
-
-      const data = (await response.json()) as { reply: string };
-      const assistantId = createId();
-
-      setError(null);
-      setMessages((prev) =>
-        prev
-          .filter((message) => !message.isTyping)
-          .concat({ id: assistantId, role: "assistant", text: "" })
-      );
-
-      streamAssistantResponse(assistantId, data.reply);
-    } catch (error) {
-      setError(
-        preference === "chinese"
-          ? "抱歉，暂时无法连接到服务器。请稍后再试。"
-          : "Could not reach the server. Please try again."
-      );
-      setMessages((prev) =>
-        prev.filter((message) => !message.isTyping)
-      );
-    } finally {
-      setIsSending(false);
-    }
-  };
-
-  const handleInputKeyPress = (
-    event: NativeSyntheticEvent<TextInputKeyPressEventData>
-  ) => {
-    if (event.nativeEvent.key !== "Enter") {
-      return;
-    }
-    const nativeEvent = event.nativeEvent as TextInputKeyPressEventData & {
-      shiftKey?: boolean;
-    };
-    if (nativeEvent.shiftKey) {
-      return;
-    }
-    (event as { preventDefault?: () => void }).preventDefault?.();
-    void sendMessage();
-  };
 
   const ensureMicPermission = async () => {
     if (micPermission === "granted") {
@@ -1028,21 +736,6 @@ export default function App() {
       const data = JSON.parse(raw) as SpeechTurnResponse;
       console.log("Voice Response Payload:", data);
       setVoiceTurn(data);
-
-      // Add voice turn to chat so the tutor has context for follow-up
-      if (data.intent === "translate_request" && data.chinese) {
-        const cardLines = [
-          `Chinese: ${data.chinese}`,
-          `Pinyin: ${data.pinyin ?? ""}`,
-          `English: ${data.transcript}`,
-        ];
-        if (data.notes?.length) cardLines.push(`Notes: ${data.notes[0]}`);
-        setMessages((prev) => [
-          ...prev,
-          { id: createId(), role: "user", text: data.transcript },
-          { id: createId(), role: "assistant", text: cardLines.join("\n") },
-        ]);
-      }
       setShowVoiceComplete(true);
       if (completeTimeoutRef.current) {
         clearTimeout(completeTimeoutRef.current);
@@ -1101,15 +794,6 @@ export default function App() {
     : showVoiceComplete
     ? "complete"
     : "idle";
-
-  useEffect(() => {
-    Animated.timing(inputFocusAnim, {
-      toValue: isInputFocused ? 1 : 0,
-      duration: 220,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: false,
-    }).start();
-  }, [inputFocusAnim, isInputFocused]);
 
   useEffect(() => {
     const next =
@@ -1194,17 +878,6 @@ export default function App() {
     }).start();
   }, [headerEntrance]);
 
-  const handleMicPress = async () => {
-    if (isUploadingVoice) {
-      return;
-    }
-    if (isRecording) {
-      await stopRecording();
-      return;
-    }
-    await startRecording();
-  };
-
   useEffect(() => {
     return () => {
       if (soundRef.current) {
@@ -1215,36 +888,6 @@ export default function App() {
       }
     };
   }, []);
-
-  const micButton = useMicroButton();
-  const sendButton = useMicroButton();
-  const canSend = input.trim().length > 0 && !isSending;
-
-  const handleSuggestionPress = useCallback(
-    (text: string) => { void sendMessage(text); },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [preference, messages, isSending]
-  );
-
-  // Shallow-copy each message so FlatList items are plain, unfrozen objects.
-  // React 19 deep-freezes useState values in DEV; passing frozen objects into
-  // Animated-backed list cells can trigger "cannot add a new property".
-  const flatListData = useMemo(
-    () => messages.map((m) => ({ ...m })),
-    [messages]
-  );
-
-  const renderItem = useCallback(
-    ({ item }: { item: ChatMessage }) => (
-      <MessageBubble
-        item={item}
-        theme={activeTheme}
-        preference={preference}
-        onSuggestionPress={handleSuggestionPress}
-      />
-    ),
-    [activeTheme, preference, handleSuggestionPress]
-  );
 
   if (isLoadingAppLock) {
     return <LoadingState title="Preparing your tutor" subtitle="One quick moment..." />;
@@ -1350,26 +993,13 @@ export default function App() {
           <View
             style={[StyleSheet.absoluteFillObject, { backgroundColor: activeTheme.headerSurface }]}
           />
-          <View
-            style={[
-              styles.headerAccentGlow,
-              { backgroundColor: activeTheme.headerGlow },
-            ]}
-          />
           <View style={styles.headerTitleRow}>
-            <View style={styles.headerTitleBlock}>
-              <Text
-                style={[styles.title, { color: activeTheme.titleText }]}
-                onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
-              >
-                {preference === "chinese" ? "英语导师" : "Chinese Tutor"}
-              </Text>
-              <View style={[styles.headerLangPairBadge, { borderColor: activeTheme.titleText }]}>
-                <Text style={[styles.headerLangPairBadgeText, { color: activeTheme.titleText }]}>
-                  {preference === "chinese" ? "中文 → 英语" : "中文 ↔ EN"}
-                </Text>
-              </View>
-            </View>
+            <Text
+              style={[styles.title, { color: activeTheme.titleText }]}
+              onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
+            >
+              {preference === "chinese" ? "英语导师" : "Chinese Tutor"}
+            </Text>
             <View style={styles.headerRight}>
               <View style={styles.langToggle}>
                 <Pressable
@@ -1402,99 +1032,66 @@ export default function App() {
               )}
             </View>
           </View>
-          <Text
-            style={[styles.subtitle, { color: activeTheme.subtitleText }]}
-          >
-            {systemHint}
-          </Text>
-          <View
-            style={[
-              styles.headerAccentTrack,
-              { backgroundColor: activeTheme.headerAccentTrack },
-            ]}
-          >
-            <View
-              style={[
-                styles.headerAccentLine,
-                { backgroundColor: activeTheme.headerAccentLine },
-              ]}
-            />
-          </View>
         </Animated.View>
 
-        {error ? (
+        {error || voiceError || micPermission === "denied" ? (
           <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{error}</Text>
+            <Text style={styles.errorText}>
+              {micPermission === "denied"
+                ? "Microphone access is disabled. Enable it in system settings."
+                : voiceError ?? error}
+            </Text>
           </View>
         ) : null}
 
-        <View
-          style={[
-            styles.voiceCard,
-            {
-              backgroundColor: activeTheme.surfaceTint,
-              borderColor: activeTheme.surfaceBorder,
-            },
-          ]}
-        >
-          <Text
-            style={[styles.voiceTitle, { color: activeTheme.voiceLabelText }]}
-          >
-            {preference === "chinese" ? "语音对话" : "Voice Turn"}
-          </Text>
-          <Text
-            style={[styles.voiceSubtitle, { color: activeTheme.voiceSupportText }]}
-          >
-            {preference === "chinese"
-              ? "按住按钮，说一句中文，松开后听英文翻译。"
-              : "Hold the button, speak, and release to translate + hear it back."}
-          </Text>
-          {micPermission === "denied" ? (
-            <Text style={styles.voiceError}>
-              Microphone access is disabled. Enable it in system settings.
-            </Text>
-          ) : null}
-          {voiceError ? (
-            <Text style={styles.voiceError}>{voiceError}</Text>
-          ) : null}
-          <View style={styles.voiceOptionsRow}>
-            {[
-              { key: "warm", label: "Warm", inactiveBg: "#FED7AA", inactiveBorder: "#FDBA74", inactiveText: "#9A3412", activeBg: "#C2410C", activeBorder: "#9A3412" },
-              { key: "bright", label: "Bright", inactiveBg: "#BAE6FD", inactiveBorder: "#7DD3FC", inactiveText: "#0C4A6E", activeBg: "#0369A1", activeBorder: "#075985" },
-              { key: "deep", label: "Deep", inactiveBg: "#DDD6FE", inactiveBorder: "#C4B5FD", inactiveText: "#4C1D95", activeBg: "#5B21B6", activeBorder: "#4C1D95" },
-            ].map((option) => {
-              const isActive = selectedVoice === option.key;
-              return (
-                <Pressable
-                  key={option.key}
-                  style={[
-                    styles.voiceOptionPill,
-                    {
-                      backgroundColor: isActive ? option.activeBg : option.inactiveBg,
-                      borderColor: isActive ? option.activeBorder : option.inactiveBorder,
-                    },
-                  ]}
-                  onPress={() => setSelectedVoice(option.key as VoiceOption)}
-                  disabled={isRecording || isUploadingVoice}
-                >
-                  <Text
-                    style={[
-                      styles.voiceOptionText,
-                      { color: isActive ? "#FFFFFF" : option.inactiveText },
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+        <View style={styles.centerStage}>
+          {voiceTurn ? (
+            <View
+              style={[
+                styles.voiceResultCenter,
+                {
+                  backgroundColor: activeTheme.surfaceTint,
+                  borderColor: activeTheme.surfaceBorder,
+                },
+              ]}
+            >
+              <Text style={[styles.voiceResultChinese, { color: activeTheme.titleText }]}>
+                {voiceTurn.chinese}
+              </Text>
+              <Text style={[styles.voiceResultPinyin, { color: activeTheme.messageAccentText }]}>
+                {voiceTurn.pinyin}
+              </Text>
+              <Text style={[styles.voiceResultEnglish, { color: activeTheme.subtitleText }]}>
+                {voiceTurn.transcript}
+              </Text>
+              {voiceTurn.notes?.length ? (
+                <Text style={[styles.voiceResultNote, { color: activeTheme.voiceSupportText }]}>
+                  {voiceTurn.notes[0]}
+                </Text>
+              ) : null}
+            </View>
+          ) : (
+            <View style={styles.dailyPhrase}>
+              <Text style={[styles.dailyPhraseChinese, { color: activeTheme.titleText }]}>
+                {getDailyPhrase().chinese}
+              </Text>
+              <Text style={[styles.dailyPhrasePinyin, { color: activeTheme.messageAccentText }]}>
+                {getDailyPhrase().pinyin}
+              </Text>
+              <Text style={[styles.dailyPhraseEnglish, { color: activeTheme.subtitleText }]}>
+                {getDailyPhrase().english}
+              </Text>
+            </View>
+          )}
 
           <Animated.View
-            style={{
-              opacity: stageTransitionOpacity,
-              transform: [{ translateY: stageTransitionTranslateY }],
-            }}
+            style={[
+              styles.micStageWrap,
+              {
+                opacity: stageTransitionOpacity,
+                transform: [{ translateY: stageTransitionTranslateY }],
+              },
+            ]}
           >
             <VoiceStage
               state={voiceStageState}
@@ -1508,148 +1105,6 @@ export default function App() {
               }}
               disabled={isUploadingVoice || micPermission === "denied"}
             />
-          </Animated.View>
-          {voiceTurn ? (
-            <View
-              style={[
-                styles.voiceResult,
-                {
-                  borderColor: activeTheme.surfaceBorder,
-                },
-              ]}
-            >
-              <Text style={[styles.voiceLabel, { color: activeTheme.messageAccentText }]}>
-                Transcript
-              </Text>
-              <Text style={[styles.voiceValue, { color: activeTheme.voiceLabelText }]}>
-                {voiceTurn.transcript}
-              </Text>
-              <Text style={[styles.voiceLabel, { color: activeTheme.messageAccentText }]}>
-                Chinese
-              </Text>
-              <Text style={[styles.voiceValue, { color: activeTheme.voiceLabelText }]}>
-                {voiceTurn.chinese}
-              </Text>
-              <Text style={[styles.voiceLabel, { color: activeTheme.messageAccentText }]}>
-                Pinyin
-              </Text>
-              <Text style={[styles.voiceValue, { color: activeTheme.voiceLabelText }]}>
-                {voiceTurn.pinyin}
-              </Text>
-              {voiceTurn.notes?.length ? (
-                <>
-                  <Text style={[styles.voiceLabel, { color: activeTheme.messageAccentText }]}>
-                    Notes
-                  </Text>
-                  {voiceTurn.notes.map((note, i) => (
-                    <Text key={i} style={[styles.voiceValue, { color: activeTheme.voiceLabelText }]}>
-                      • {note}
-                    </Text>
-                  ))}
-                </>
-              ) : null}
-              {voiceTurn.tts_error ? (
-                <Text style={[styles.voiceAudioNote, { color: activeTheme.voiceSupportText }]}>
-                  {voiceTurn.tts_error}
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
-        </View>
-
-        <FlatList
-          ref={listRef}
-          data={flatListData}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.messagesContent}
-          ListEmptyComponent={<EmptyChatState preference={preference} />}
-          onContentSizeChange={() =>
-            listRef.current?.scrollToEnd({ animated: true })
-          }
-        />
-
-        <View style={[styles.inputBar, { backgroundColor: activeTheme.inputBarBackground, borderTopColor: activeTheme.inputBarBorder }]}>
-          <Animated.View
-            style={[
-              styles.inputShell,
-              {
-                backgroundColor: activeTheme.composerBackground,
-                borderColor: activeTheme.composerBorder,
-                shadowOpacity: inputFocusShadowOpacity,
-                shadowRadius: inputFocusShadowRadius,
-              },
-            ]}
-          >
-            <TextInput
-              style={[
-                styles.input,
-                { color: activeTheme.inputText },
-                Platform.OS === "web" ? ({ outlineWidth: 0 } as never) : null,
-              ]}
-              placeholder={preference === "chinese" ? "一起学习吧" : "Let's Learn Together"}
-              placeholderTextColor={activeTheme.inputPlaceholder}
-              selectionColor={activeTheme.messageAccentText}
-              value={input}
-              onChangeText={setInput}
-              editable={!isSending}
-              multiline
-              onKeyPress={handleInputKeyPress}
-              onFocus={() => setIsInputFocused(true)}
-              onBlur={() => setIsInputFocused(false)}
-            />
-          </Animated.View>
-          <Animated.View style={micButton.style}>
-            <Pressable
-              style={[
-                styles.micButton,
-                { backgroundColor: activeTheme.sendButtonBackground },
-                isRecording && { backgroundColor: activeTheme.sendButtonBorder },
-                (isUploadingVoice || micPermission === "denied") &&
-                  styles.micButtonDisabled,
-              ]}
-              onPress={handleMicPress}
-              disabled={isUploadingVoice || micPermission === "denied"}
-              {...micButton.handlers}
-            >
-              <Text style={styles.micButtonText}>{isRecording ? "⏹" : "🎤"}</Text>
-            </Pressable>
-          </Animated.View>
-          <Animated.View style={sendButton.style}>
-            <Animated.View
-              style={{
-                transform: [{ translateX: sendBurstTranslateXOuter }],
-              }}
-            >
-              <Pressable
-                style={[
-                  styles.sendButton,
-                  {
-                    backgroundColor: activeTheme.sendButtonBackground,
-                    borderColor: activeTheme.sendButtonBorder,
-                  },
-                  (!canSend || isSending) && styles.sendButtonDisabled,
-                ]}
-                onPress={sendMessage}
-                disabled={!canSend || isSending}
-                {...sendButton.handlers}
-              >
-                <Animated.View
-                  style={[
-                    styles.sendButtonContent,
-                    {
-                      transform: [{ translateX: sendBurstTranslateXInner }],
-                      opacity: sendBurstOpacity,
-                    },
-                  ]}
-                >
-                  <Text style={[styles.sendButtonIcon, { color: activeTheme.sendButtonText }]}>➤</Text>
-                  <Text style={[styles.sendButtonText, { color: activeTheme.sendButtonText }]}>
-                    {isSending ? "Sending" : "Send"}
-                  </Text>
-                </Animated.View>
-              </Pressable>
-            </Animated.View>
           </Animated.View>
         </View>
       </KeyboardAvoidingView>
@@ -1732,55 +1187,12 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
-  headerTitleBlock: {
-    flexDirection: "column",
-    gap: 5,
-  },
-  headerLangPairBadge: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    borderWidth: 1,
-    opacity: 0.65,
-  },
-  headerLangPairBadgeText: {
-    fontSize: 11,
-    fontWeight: "600",
-    letterSpacing: 0.4,
-  },
-  headerAccentGlow: {
-    position: "absolute",
-    width: 230,
-    height: 230,
-    borderRadius: 230,
-    right: -80,
-    top: -110,
-  },
   title: {
-    fontSize: 32,
-    lineHeight: 36,
+    fontSize: 26,
+    lineHeight: 30,
     fontWeight: "800",
     letterSpacing: -0.6,
     color: "#6B2C12",
-  },
-  subtitle: {
-    marginTop: 10,
-    fontSize: 13,
-    lineHeight: 18,
-    color: "#9A5A2B",
-  },
-  headerAccentTrack: {
-    marginTop: 10,
-    width: "100%",
-    height: 2,
-    borderRadius: 2,
-    overflow: "hidden",
-  },
-  headerAccentLine: {
-    width: "42%",
-    height: "100%",
-    borderRadius: 2,
   },
   logoutText: {
     fontSize: 12,
@@ -1817,288 +1229,77 @@ const styles = StyleSheet.create({
   langPillTextActive: {
     color: "#6B2C12",
   },
-  messagesContent: {
-    flexGrow: 1,
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 20,
-    gap: 6,
+  centerStage: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 32,
+    paddingBottom: 40,
   },
-  emptyStateCard: {
-    marginTop: 16,
-    backgroundColor: "rgba(255, 253, 249, 0.95)",
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: "#EEDCC7",
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    shadowColor: "#A16207",
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
+  dailyPhrase: {
+    alignItems: "center",
+    marginBottom: 48,
   },
-  emptyStateEyebrow: {
-    fontSize: 11,
-    textTransform: "uppercase",
-    letterSpacing: 1,
-    color: "#B45309",
-    fontWeight: "700",
+  dailyPhraseChinese: {
+    fontSize: 42,
+    fontWeight: "800",
+    letterSpacing: -0.5,
   },
-  emptyStateTitle: {
+  dailyPhrasePinyin: {
+    marginTop: 8,
+    fontSize: 18,
+    fontWeight: "500",
+  },
+  dailyPhraseEnglish: {
     marginTop: 6,
     fontSize: 16,
-    lineHeight: 22,
-    fontWeight: "700",
-    color: "#7C2D12",
+    fontWeight: "400",
   },
-  emptyStateBody: {
-    marginTop: 8,
-    fontSize: 13,
-    lineHeight: 20,
-    color: "#9A5A2B",
-  },
-  messageBubble: {
-    borderRadius: 18,
-    paddingHorizontal: 15,
-    paddingVertical: 11,
-    marginBottom: 8,
-    maxWidth: "88%",
-    borderWidth: 1,
-  },
-  userBubble: {
-    backgroundColor: "#FFF7ED",
-    borderColor: "#FCD9B1",
-    alignSelf: "flex-end",
-    shadowColor: "#A16207",
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 1,
-  },
-  botBubble: {
-    backgroundColor: "transparent",
-    borderColor: "transparent",
-    alignSelf: "flex-start",
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    borderWidth: 0,
-    shadowOpacity: 0,
-    elevation: 0,
-  },
-  userText: {
-    color: "#7C2D12",
-    fontSize: 14,
-    lineHeight: 21,
-    fontWeight: "500",
-  },
-  botText: {
-    color: "#581C87",
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  typingDotsRow: {
-    flexDirection: "row",
+  voiceResultCenter: {
     alignItems: "center",
-  },
-  typingDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 999,
-    backgroundColor: "#7E22CE",
-    marginRight: 4,
-  },
-  typingText: {
-    marginLeft: 6,
-    color: "#7E22CE",
-    fontSize: 12,
-    fontWeight: "500",
-  },
-  inputBar: {
-    flexDirection: "row",
-    alignItems: "flex-end",
-    paddingHorizontal: 16,
-    paddingTop: 10,
-    paddingBottom: 12,
-    borderTopWidth: 1,
-  },
-  inputShell: {
-    flex: 1,
-    backgroundColor: "#FFFDF9",
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: "#E7DAC8",
-    shadowColor: "#8A6648",
-    shadowOffset: { width: 0, height: 3 },
-    shadowRadius: 6,
-    elevation: 1,
-  },
-  input: {
-    width: "100%",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 14,
-    color: "#4A2F1A",
-    lineHeight: 20,
-    maxHeight: 120,
-    minHeight: 46,
-  },
-  micButton: {
-    marginLeft: 8,
-    backgroundColor: "#EA580C",
-    width: 40,
-    height: 40,
+    marginBottom: 48,
     borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  micButtonActive: {
-    backgroundColor: "#7F1D1D",
-  },
-  micButtonDisabled: {
-    backgroundColor: "#D4A373",
-  },
-  micButtonText: {
-    color: "#FFFFFF",
-    fontSize: 18,
-  },
-  sendButton: {
-    marginLeft: 10,
-    minHeight: 44,
-    minWidth: 88,
-    backgroundColor: "#8F5A33",
     borderWidth: 1,
-    borderColor: "#7B4925",
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 16,
-    shadowColor: "#6B4428",
-    shadowOpacity: 0.16,
-    shadowRadius: 7,
-    shadowOffset: { width: 0, height: 3 },
-    elevation: 1,
-    justifyContent: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+    width: "100%",
+    maxWidth: 340,
   },
-  sendButtonDisabled: {
-    backgroundColor: "#CCBBA8",
-    borderColor: "#CCBBA8",
+  voiceResultChinese: {
+    fontSize: 36,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+    textAlign: "center",
   },
-  sendButtonContent: {
-    flexDirection: "row",
+  voiceResultPinyin: {
+    marginTop: 6,
+    fontSize: 17,
+    fontWeight: "500",
+    textAlign: "center",
+  },
+  voiceResultEnglish: {
+    marginTop: 6,
+    fontSize: 15,
+    textAlign: "center",
+  },
+  voiceResultNote: {
+    marginTop: 10,
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 18,
+  },
+  micStageWrap: {
     alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  sendButtonIcon: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    marginTop: -1,
-  },
-  sendButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "700",
-    fontSize: 14,
-    letterSpacing: 0.2,
   },
   errorBanner: {
     backgroundColor: "#FEE2E2",
-    borderBottomWidth: 1,
-    borderBottomColor: "#FECACA",
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
   errorText: {
     color: "#B91C1C",
     fontSize: 12,
-  },
-  voiceCard: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    padding: 16,
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  voiceTitle: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: "#9A3412",
-  },
-  voiceSubtitle: {
-    marginTop: 6,
-    fontSize: 12,
-    color: "#92400E",
-  },
-  voiceError: {
-    marginTop: 8,
-    fontSize: 12,
-    color: "#B91C1C",
-  },
-  voiceOptionsRow: {
-    marginTop: 12,
-    flexDirection: "row",
-    gap: 8,
-  },
-  voiceOptionPill: {
-    backgroundColor: "#FED7AA",
-    borderWidth: 1,
-    borderColor: "#FDBA74",
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  voiceOptionPillActive: {
-    backgroundColor: "#C2410C",
-    borderColor: "#9A3412",
-  },
-  voiceOptionText: {
-    color: "#9A3412",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  voiceOptionTextActive: {
-    color: "#FFFFFF",
-  },
-  voiceButton: {
-    marginTop: 12,
-    paddingVertical: 12,
-    borderRadius: 18,
-    backgroundColor: "#B91C1C",
-    alignItems: "center",
-  },
-  voiceButtonActive: {
-    backgroundColor: "#991B1B",
-  },
-  voiceButtonDisabled: {
-    backgroundColor: "#D4A373",
-  },
-  voiceButtonText: {
-    color: "#FFFFFF",
-    fontWeight: "600",
-    fontSize: 14,
-  },
-  voiceResult: {
-    marginTop: 12,
-    backgroundColor: "#FFF7ED",
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#FED7AA",
-    padding: 12,
-  },
-  voiceLabel: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: "#92400E",
-    textTransform: "uppercase",
-    marginTop: 8,
-  },
-  voiceValue: {
-    marginTop: 4,
-    fontSize: 14,
-    color: "#9A3412",
-  },
-  voiceAudioNote: {
-    marginTop: 8,
-    fontSize: 12,
-    color: "#92400E",
+    textAlign: "center",
   },
   onboardingContainer: {
     flex: 1,
