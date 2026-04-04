@@ -58,7 +58,11 @@ export const apiFetchWithTimeout = async (
       clearTimeout(timeoutId);
       const isTimeout =
         error instanceof Error && error.name === "AbortError";
-      if (!isTimeout || attempt >= retryCount) {
+      const isNetworkError =
+        error instanceof TypeError &&
+        error.message === "Network request failed";
+      const isRetryable = isTimeout || isNetworkError;
+      if (!isRetryable || attempt >= retryCount) {
         throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, 1000));
