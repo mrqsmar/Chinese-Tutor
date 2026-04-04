@@ -986,9 +986,6 @@ export default function App() {
       const fileSize = "size" in fileInfo ? fileInfo.size : undefined;
       console.log("Voice recording duration (ms):", status.durationMillis);
       console.log("Voice recording file size (bytes):", fileSize);
-      if (!status.durationMillis || status.durationMillis < 200) {
-        throw new Error("Recording too short. Please hold the button longer.");
-      }
       const formData = new FormData();
       formData.append("audio", {
         uri,
@@ -1073,19 +1070,14 @@ export default function App() {
       }
     } catch (voiceUploadError) {
       console.error("Voice upload error:", voiceUploadError);
-      const errMsg =
-        voiceUploadError instanceof Error ? voiceUploadError.message : "";
       const isTimeout =
         voiceUploadError instanceof Error &&
         (voiceUploadError.name === "AbortError" ||
-          errMsg.toLowerCase().includes("timed out"));
-      const isTooShort = errMsg.includes("Recording too short");
+          voiceUploadError.message.toLowerCase().includes("timed out"));
       setVoiceError(
-        isTooShort
-          ? errMsg
-          : isTimeout
-            ? "Voice request timed out. Please try again."
-            : "Voice request failed. Please try again."
+        isTimeout
+          ? "Voice request timed out. Please try again."
+          : "Voice request failed. Please try again."
       );
     } finally {
       setIsUploadingVoice(false);
