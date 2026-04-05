@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
@@ -69,6 +69,8 @@ const VoiceStage = ({
   const pressAnim  = useRef(new Animated.Value(0)).current;
   const pulseAnim  = useRef(new Animated.Value(1)).current;
   const ringAnim   = useRef(new Animated.Value(0)).current;
+  const [hasEnoughRecording, setHasEnoughRecording] = useState(false);
+  const enoughTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scale = useRef(pressAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.92] })).current;
 
   const isListening  = state === "listening";
@@ -85,25 +87,25 @@ const VoiceStage = ({
 
   useEffect(() => {
     if (isListening) {
-      const loop = Animated.loop(
-        Animated.sequence([
-          Animated.timing(ringAnim, {
-            toValue: 1,
-            duration: 1200,
-            easing: Easing.out(Easing.ease),
-            useNativeDriver: true,
-          }),
-          Animated.timing(ringAnim, {
-            toValue: 0,
-            duration: 0,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-      loop.start();
-      return () => loop.stop();
+      setHasEnoughRecording(false);
+      Animated.timing(ringAnim, {
+        toValue: 1,
+        duration: 2000,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+      enoughTimerRef.current = setTimeout(() => {
+        setHasEnoughRecording(true);
+      }, 2000);
+      return () => {
+        if (enoughTimerRef.current) {
+          clearTimeout(enoughTimerRef.current);
+          enoughTimerRef.current = null;
+        }
+      };
     }
     ringAnim.setValue(0);
+    setHasEnoughRecording(false);
   }, [isListening, ringAnim]);
 
   useEffect(() => {
@@ -140,11 +142,11 @@ const VoiceStage = ({
 
   const ringScale = ringAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [1, 1.6],
+    outputRange: [1, 1.9],
   });
   const ringOpacity = ringAnim.interpolate({
     inputRange: [0, 0.8, 1],
-    outputRange: [0.5, 0.1, 0],
+    outputRange: [0.55, 0.45, 0.35],
   });
 
   return (
@@ -154,7 +156,7 @@ const VoiceStage = ({
           style={[
             styles.ring,
             {
-              backgroundColor: ring,
+              backgroundColor: hasEnoughRecording ? "#22C55E" : ring,
               transform: [{ scale: ringScale }],
               opacity: ringOpacity,
             },
@@ -175,7 +177,15 @@ const VoiceStage = ({
           <Text style={styles.icon}>{STATE_ICON[state]}</Text>
         </Pressable>
       </Animated.View>
-      <Text style={[styles.label, { color: bg }]}>{STATE_LABEL[state]}</Text>
+      {isProcessing ? (
+        <Animated.Text
+          style={[styles.label, styles.processingLabel, { color: bg, opacity: pulseAnim }]}
+        >
+          Thinking...
+        </Animated.Text>
+      ) : (
+        <Text style={[styles.label, { color: bg }]}>{STATE_LABEL[state]}</Text>
+      )}
     </View>
   );
 };
@@ -215,6 +225,10 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "600",
     letterSpacing: 0.2,
+  },
+  processingLabel: {
+    minWidth: 100,
+    textAlign: "center",
   },
 });
 
