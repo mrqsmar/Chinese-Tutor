@@ -150,6 +150,49 @@ type VoiceExchange = {
   tutorEnglish: string;
 };
 
+type PracticeScenario = {
+  id: "ordering_food" | "taking_taxi" | "meeting_someone_new";
+  title: string;
+  description: string;
+  vocab: Array<{ chinese: string; pinyin: string; english: string }>;
+};
+
+const PRACTICE_SCENARIOS: PracticeScenario[] = [
+  {
+    id: "ordering_food",
+    title: "Ordering Food",
+    description: "Practice ordering dishes and asking about prices.",
+    vocab: [
+      { chinese: "菜单", pinyin: "cài dān", english: "Menu" },
+      { chinese: "点菜", pinyin: "diǎn cài", english: "Order food" },
+      { chinese: "这个", pinyin: "zhè gè", english: "This one" },
+      { chinese: "买单", pinyin: "mǎi dān", english: "Check, please" },
+    ],
+  },
+  {
+    id: "taking_taxi",
+    title: "Taking a Taxi",
+    description: "Practice giving directions and confirming destination details.",
+    vocab: [
+      { chinese: "出租车", pinyin: "chū zū chē", english: "Taxi" },
+      { chinese: "去这里", pinyin: "qù zhè lǐ", english: "Go here" },
+      { chinese: "多少钱", pinyin: "duō shǎo qián", english: "How much?" },
+      { chinese: "请快一点", pinyin: "qǐng kuài yì diǎn", english: "Please go faster" },
+    ],
+  },
+  {
+    id: "meeting_someone_new",
+    title: "Meeting Someone New",
+    description: "Practice introductions and small talk.",
+    vocab: [
+      { chinese: "认识你很高兴", pinyin: "rèn shi nǐ hěn gāo xìng", english: "Nice to meet you" },
+      { chinese: "我叫…", pinyin: "wǒ jiào…", english: "My name is..." },
+      { chinese: "你从哪里来", pinyin: "nǐ cóng nǎ lǐ lái", english: "Where are you from?" },
+      { chinese: "我们可以做朋友吗", pinyin: "wǒ men kě yǐ zuò péng yǒu ma", english: "Can we be friends?" },
+    ],
+  },
+];
+
 const LoadingState = ({
   title,
   subtitle,
@@ -358,6 +401,8 @@ export default function App() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
   const [voiceHistory, setVoiceHistory] = useState<VoiceExchange[]>([]);
+  const [showScenarioPicker, setShowScenarioPicker] = useState(false);
+  const [selectedScenario, setSelectedScenario] = useState<PracticeScenario | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -492,6 +537,14 @@ export default function App() {
     setVoiceError(null);
     setPreference(next);
     await AsyncStorage.setItem(STORAGE_KEY, next);
+  };
+
+  const handleSelectScenario = (scenario: PracticeScenario) => {
+    setSelectedScenario(scenario);
+    setShowScenarioPicker(false);
+    setVoiceTurn(null);
+    setVoiceHistory([]);
+    setVoiceError(null);
   };
 
   const handleLogin = async (username: string, password: string) => {
@@ -715,7 +768,7 @@ export default function App() {
         type: "audio/mp4",
       } as any);
       formData.append("level", "beginner");
-      formData.append("scenario", "general");
+      formData.append("scenario", selectedScenario?.id ?? "general");
       const sourceLang = preference === "chinese" ? "zh" : "en";
       const targetLang = preference === "chinese" ? "en" : "zh";
       formData.append("source_lang", sourceLang);
@@ -1066,6 +1119,88 @@ export default function App() {
         ) : null}
 
         <View style={styles.centerStage}>
+          <View style={styles.practiceScenarioWrap}>
+            <Pressable
+              style={[
+                styles.practiceScenarioButton,
+                {
+                  backgroundColor: activeTheme.surfaceTint,
+                  borderColor: activeTheme.surfaceBorder,
+                },
+              ]}
+              onPress={() => setShowScenarioPicker((previous) => !previous)}
+            >
+              <Text style={[styles.practiceScenarioButtonText, { color: activeTheme.titleText }]}>
+                {selectedScenario
+                  ? `Practice Scenario: ${selectedScenario.title}`
+                  : "Practice Scenario"}
+              </Text>
+              <Text style={[styles.practiceScenarioButtonHint, { color: activeTheme.subtitleText }]}>
+                {showScenarioPicker ? "Hide options" : "Choose a conversation context"}
+              </Text>
+            </Pressable>
+
+            {showScenarioPicker ? (
+              <View style={styles.practiceScenarioCards}>
+                {PRACTICE_SCENARIOS.map((scenario) => {
+                  const isActive = selectedScenario?.id === scenario.id;
+                  return (
+                    <Pressable
+                      key={scenario.id}
+                      style={[
+                        styles.practiceScenarioCard,
+                        {
+                          backgroundColor: activeTheme.surfaceTint,
+                          borderColor: activeTheme.surfaceBorder,
+                        },
+                        isActive && {
+                          borderColor: activeTheme.messageAccentText,
+                        },
+                      ]}
+                      onPress={() => handleSelectScenario(scenario)}
+                    >
+                      <Text style={[styles.practiceScenarioCardTitle, { color: activeTheme.titleText }]}>
+                        {scenario.title}
+                      </Text>
+                      <Text style={[styles.practiceScenarioCardDescription, { color: activeTheme.subtitleText }]}>
+                        {scenario.description}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
+
+          {selectedScenario ? (
+            <View
+              style={[
+                styles.relevantVocabPanel,
+                {
+                  backgroundColor: activeTheme.surfaceTint,
+                  borderColor: activeTheme.surfaceBorder,
+                },
+              ]}
+            >
+              <Text style={[styles.relevantVocabTitle, { color: activeTheme.titleText }]}>
+                Relevant vocab · {selectedScenario.title}
+              </Text>
+              {selectedScenario.vocab.map((word) => (
+                <View key={`${selectedScenario.id}-${word.chinese}`} style={styles.relevantVocabRow}>
+                  <Text style={[styles.relevantVocabChinese, { color: activeTheme.titleText }]}>
+                    {word.chinese}
+                  </Text>
+                  <Text style={[styles.relevantVocabPinyin, { color: activeTheme.messageAccentText }]}>
+                    {word.pinyin}
+                  </Text>
+                  <Text style={[styles.relevantVocabEnglish, { color: activeTheme.subtitleText }]}>
+                    {word.english}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
           {voiceTurn ? (
             <View
               style={[
@@ -1203,6 +1338,74 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#FDF8F2",
+  },
+  practiceScenarioWrap: {
+    width: "100%",
+    marginBottom: 12,
+  },
+  practiceScenarioButton: {
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    gap: 4,
+  },
+  practiceScenarioButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  practiceScenarioButtonHint: {
+    fontSize: 12,
+    fontWeight: "500",
+  },
+  practiceScenarioCards: {
+    marginTop: 10,
+    gap: 8,
+  },
+  practiceScenarioCard: {
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  practiceScenarioCardTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  practiceScenarioCardDescription: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  relevantVocabPanel: {
+    width: "100%",
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    marginBottom: 14,
+  },
+  relevantVocabTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
+  relevantVocabRow: {
+    marginTop: 6,
+  },
+  relevantVocabChinese: {
+    fontSize: 16,
+    fontWeight: "700",
+  },
+  relevantVocabPinyin: {
+    marginTop: 2,
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  relevantVocabEnglish: {
+    marginTop: 1,
+    fontSize: 13,
+    fontWeight: "500",
   },
   ambientBackground: {
     ...StyleSheet.absoluteFillObject,
