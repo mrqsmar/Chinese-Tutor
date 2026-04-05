@@ -142,6 +142,14 @@ type SpeechTurnResponse = {
   tts_error?: string | null;
 };
 
+type VoiceExchange = {
+  id: string;
+  userTranscript: string;
+  tutorChinese: string;
+  tutorPinyin: string;
+  tutorEnglish: string;
+};
+
 const LoadingState = ({
   title,
   subtitle,
@@ -349,6 +357,7 @@ export default function App() {
   const [showVoiceComplete, setShowVoiceComplete] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
+  const [voiceHistory, setVoiceHistory] = useState<VoiceExchange[]>([]);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -479,6 +488,7 @@ export default function App() {
   const handleSwitchLanguage = async (next: SpeakerPreference) => {
     if (next === preference) return;
     setVoiceTurn(null);
+    setVoiceHistory([]);
     setVoiceError(null);
     setPreference(next);
     await AsyncStorage.setItem(STORAGE_KEY, next);
@@ -510,6 +520,7 @@ export default function App() {
   const handleLogout = async () => {
     await logout();
     setVoiceTurn(null);
+    setVoiceHistory([]);
     setVoiceError(null);
     setPreference(null);
     setIsLoadingPreference(true);
@@ -736,6 +747,16 @@ export default function App() {
       const data = JSON.parse(raw) as SpeechTurnResponse;
       console.log("Voice Response Payload:", data);
       setVoiceTurn(data);
+      setVoiceHistory((previous) => [
+        ...previous.slice(-2),
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          userTranscript: data.transcript,
+          tutorChinese: data.chinese,
+          tutorPinyin: data.pinyin,
+          tutorEnglish: data.assistant_text,
+        },
+      ]);
       setShowVoiceComplete(true);
       if (completeTimeoutRef.current) {
         clearTimeout(completeTimeoutRef.current);
@@ -1106,6 +1127,72 @@ export default function App() {
               disabled={isUploadingVoice || micPermission === "denied"}
             />
           </Animated.View>
+
+          {voiceHistory.length ? (
+            <View style={styles.voiceHistoryWrap}>
+              {voiceHistory.map((exchange) => (
+                <View
+                  key={exchange.id}
+                  style={[
+                    styles.voiceHistoryBubble,
+                    {
+                      backgroundColor: activeTheme.surfaceTint,
+                      borderColor: activeTheme.surfaceBorder,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.voiceHistoryUserLabel,
+                      { color: activeTheme.voiceSupportText },
+                    ]}
+                  >
+                    You said
+                  </Text>
+                  <Text
+                    style={[
+                      styles.voiceHistoryUserText,
+                      { color: activeTheme.titleText },
+                    ]}
+                  >
+                    {exchange.userTranscript}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.voiceHistoryTutorLabel,
+                      { color: activeTheme.voiceSupportText },
+                    ]}
+                  >
+                    Tutor replied
+                  </Text>
+                  <Text
+                    style={[
+                      styles.voiceHistoryTutorChinese,
+                      { color: activeTheme.titleText },
+                    ]}
+                  >
+                    {exchange.tutorChinese}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.voiceHistoryTutorPinyin,
+                      { color: activeTheme.messageAccentText },
+                    ]}
+                  >
+                    {exchange.tutorPinyin}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.voiceHistoryTutorEnglish,
+                      { color: activeTheme.subtitleText },
+                    ]}
+                  >
+                    {exchange.tutorEnglish}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
         </View>
       </KeyboardAvoidingView>
     </SafeAreaView>
@@ -1290,6 +1377,50 @@ const styles = StyleSheet.create({
   },
   micStageWrap: {
     alignItems: "center",
+  },
+  voiceHistoryWrap: {
+    width: "100%",
+    marginTop: 14,
+    gap: 10,
+  },
+  voiceHistoryBubble: {
+    borderWidth: 1,
+    borderRadius: 18,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  voiceHistoryUserLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  voiceHistoryUserText: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: 3,
+  },
+  voiceHistoryTutorLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginTop: 10,
+  },
+  voiceHistoryTutorChinese: {
+    fontSize: 18,
+    fontWeight: "700",
+    marginTop: 4,
+  },
+  voiceHistoryTutorPinyin: {
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  voiceHistoryTutorEnglish: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 2,
   },
   errorBanner: {
     backgroundColor: "#FEE2E2",
