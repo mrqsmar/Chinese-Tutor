@@ -1,12 +1,14 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
+import { useFonts, Fraunces_500Medium_Italic } from "@expo-google-fonts/fraunces";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
   Easing,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   SafeAreaView,
@@ -14,6 +16,8 @@ import {
   Text,
   View,
 } from "react-native";
+
+import { useUIStore } from "./src/store/uiStore";
 
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
@@ -404,6 +408,10 @@ export default function App() {
   const [showScenarioPicker, setShowScenarioPicker] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState<PracticeScenario | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [fontsLoaded] = useFonts({ Fraunces_500Medium_Italic });
+  const activeTab = useUIStore((s) => s.activeTab);
+  const setActiveTab = useUIStore((s) => s.setActiveTab);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1067,44 +1075,58 @@ export default function App() {
           <View
             style={[StyleSheet.absoluteFillObject, { backgroundColor: activeTheme.headerSurface }]}
           />
+          {/* Title row */}
           <View style={styles.headerTitleRow}>
             <Text
-              style={[styles.title, { color: activeTheme.titleText }]}
+              style={[
+                styles.headerWordmark,
+                fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+              ]}
               onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
             >
-              {preference === "chinese" ? "英语导师" : "Chinese Tutor"}
+              Tutor
             </Text>
             <View style={styles.headerRight}>
-              <View style={styles.langToggle}>
-                <Pressable
-                  style={[
-                    styles.langPill,
-                    { borderColor: activeTheme.surfaceBorder },
-                    preference === "english" && styles.langPillActive,
-                    preference === "english" && { borderColor: activeTheme.messageAccentText },
-                  ]}
-                  onPress={() => void handleSwitchLanguage("english")}
-                >
-                  <Text style={[styles.langPillText, { color: activeTheme.subtitleText }, preference === "english" && styles.langPillTextActive, preference === "english" && { color: activeTheme.titleText }]}>EN</Text>
+              {/* EN → 中 pill */}
+              <View style={styles.langPillContainer}>
+                <Pressable onPress={() => void handleSwitchLanguage("english")}>
+                  <Text
+                    style={[
+                      styles.langPillSide,
+                      preference === "english" && styles.langPillSideActive,
+                    ]}
+                  >
+                    EN
+                  </Text>
                 </Pressable>
-                <Pressable
-                  style={[
-                    styles.langPill,
-                    { borderColor: activeTheme.surfaceBorder },
-                    preference === "chinese" && styles.langPillActive,
-                    preference === "chinese" && { borderColor: activeTheme.messageAccentText },
-                  ]}
-                  onPress={() => void handleSwitchLanguage("chinese")}
-                >
-                  <Text style={[styles.langPillText, { color: activeTheme.subtitleText }, preference === "chinese" && styles.langPillTextActive, preference === "chinese" && { color: activeTheme.titleText }]}>中</Text>
+                <Text style={styles.langPillSeparator}>→</Text>
+                <Pressable onPress={() => void handleSwitchLanguage("chinese")}>
+                  <Text
+                    style={[
+                      styles.langPillSide,
+                      preference === "chinese" && styles.langPillSideActive,
+                    ]}
+                  >
+                    中
+                  </Text>
                 </Pressable>
               </View>
-              {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
-                <Pressable onPress={handleLogout}>
-                  <Text style={styles.logoutText}>Logout</Text>
-                </Pressable>
-              )}
+              {/* Hamburger menu */}
+              <Pressable onPress={() => setShowDrawer(true)} style={styles.menuButton}>
+                <Text style={styles.menuIcon}>≡</Text>
+              </Pressable>
             </View>
+          </View>
+          {/* Tab bar */}
+          <View style={styles.tabBar}>
+            {(["SPEAK", "HISTORY", "SAVED"] as const).map((tab) => (
+              <Pressable key={tab} onPress={() => setActiveTab(tab)} style={styles.tabItem}>
+                <Text style={[styles.tabLabel, activeTab === tab && styles.tabLabelActive]}>
+                  {tab}
+                </Text>
+                {activeTab === tab && <View style={styles.tabUnderline} />}
+              </Pressable>
+            ))}
           </View>
         </Animated.View>
 
@@ -1118,7 +1140,16 @@ export default function App() {
           </View>
         ) : null}
 
-        <View style={styles.centerStage}>
+        {activeTab === "HISTORY" ? (
+          <View style={styles.tabPlaceholder}>
+            <Text style={styles.tabPlaceholderText}>History</Text>
+          </View>
+        ) : activeTab === "SAVED" ? (
+          <View style={styles.tabPlaceholder}>
+            <Text style={styles.tabPlaceholderText}>Saved</Text>
+          </View>
+        ) : null}
+        {activeTab === "SPEAK" ? <View style={styles.centerStage}>
           <View style={styles.practiceScenarioWrap}>
             <Pressable
               style={[
@@ -1328,8 +1359,31 @@ export default function App() {
               ))}
             </View>
           ) : null}
-        </View>
+        </View> : null}
       </KeyboardAvoidingView>
+      <Modal
+        visible={showDrawer}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDrawer(false)}
+      >
+        <Pressable style={styles.drawerOverlay} onPress={() => setShowDrawer(false)}>
+          <View style={styles.drawerPanel}>
+            {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? (
+              <Text style={styles.drawerEmpty}>Settings coming soon</Text>
+            ) : (
+              <Pressable
+                onPress={() => {
+                  setShowDrawer(false);
+                  void handleLogout();
+                }}
+              >
+                <Text style={styles.drawerItem}>Logout</Text>
+              </Pressable>
+            )}
+          </View>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1467,57 +1521,136 @@ const styles = StyleSheet.create({
   },
   headerHero: {
     paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 16,
-    borderBottomWidth: 1.5,
-    borderBottomColor: "rgba(245, 208, 169, 0.7)",
+    paddingTop: 16,
+    paddingBottom: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0,0,0,0.07)",
   },
   headerTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  title: {
-    fontSize: 26,
-    lineHeight: 30,
-    fontWeight: "800",
-    letterSpacing: -0.6,
-    color: "#6B2C12",
-  },
-  logoutText: {
-    fontSize: 12,
-    color: "#B91C1C",
-    fontWeight: "600",
+  headerWordmark: {
+    fontSize: 22,
+    fontWeight: "500",
+    fontStyle: "italic",
+    color: "#1A1009",
+    letterSpacing: 0.1,
   },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
-  langToggle: {
+  langPillContainer: {
     flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.05)",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     gap: 4,
   },
-  langPill: {
-    paddingHorizontal: 13,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1.5,
-    borderColor: "rgba(107, 44, 18, 0.2)",
-    backgroundColor: "rgba(255,255,255,0.2)",
+  langPillSide: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: "#8F8578",
   },
-  langPillActive: {
-    backgroundColor: "rgba(107, 44, 18, 0.14)",
-    borderColor: "rgba(107, 44, 18, 0.6)",
+  langPillSideActive: {
+    color: "#1D4D3B",
   },
-  langPillText: {
+  langPillSeparator: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 11,
+    color: "#8F8578",
+  },
+  menuButton: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  menuIcon: {
+    fontSize: 22,
+    color: "#1A1009",
+    lineHeight: 26,
+  },
+  tabBar: {
+    flexDirection: "row",
+    marginTop: 14,
+    gap: 20,
+  },
+  tabItem: {
+    paddingBottom: 8,
+    position: "relative",
+  },
+  tabLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
+  },
+  tabLabelActive: {
+    color: "#1D4D3B",
+  },
+  tabUnderline: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: "#1D4D3B",
+    borderRadius: 1,
+  },
+  tabPlaceholder: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  tabPlaceholderText: {
+    fontSize: 16,
+    color: "#8F8578",
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+  logoutText: {
+    fontSize: 12,
+    color: "#B91C1C",
+    fontWeight: "600",
+  },
+  drawerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.28)",
+    justifyContent: "flex-start",
+    alignItems: "flex-end",
+  },
+  drawerPanel: {
+    backgroundColor: "#FDFAF6",
+    marginTop: 88,
+    marginRight: 16,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minWidth: 180,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  drawerItem: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#B91C1C",
+    paddingVertical: 8,
+  },
+  drawerEmpty: {
     fontSize: 13,
-    fontWeight: "700",
-    color: "rgba(107, 44, 18, 0.38)",
-    letterSpacing: 0.3,
-  },
-  langPillTextActive: {
-    color: "#6B2C12",
+    color: "#8F8578",
+    paddingVertical: 8,
   },
   centerStage: {
     flex: 1,
