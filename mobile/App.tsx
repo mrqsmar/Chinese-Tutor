@@ -491,6 +491,10 @@ export default function App() {
       }
       setApiError(null);
       if (DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH) {
+        // Still attempt a silent token refresh so production backends
+        // that require auth get a Bearer token even when the login
+        // screen is hidden. Failure is safe — backend may not need auth.
+        try { await refreshSession(); } catch { /* ignored */ }
         setIsAuthenticated(true);
         setIsBootstrapping(false);
         return;

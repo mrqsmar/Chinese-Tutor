@@ -32,20 +32,16 @@ class GeminiTTSClient:
         target_lang: str,
         voice_name: str = "Kore",
     ) -> tuple[bytes, dict[str, Any]]:
-        # Match the official REST example shape closely:
-        # - contents -> [{ parts: [{ text: ... }] }]
-        # - generationConfig -> responseModalities + speechConfig
-        # - include "model" in the JSON body
+        if target_lang == "zh":
+            speech_text = f"Read aloud in Standard Mandarin Chinese: {text}"
+        else:
+            speech_text = f"Read aloud in English: {text}"
+
         payload = {
             "contents": [
                 {
-                    "parts": [
-                        {
-                            # You can keep this simple for debug.
-                            # Later you can do: f"Say in {target_lang}: {text}"
-                            "text": text
-                        }
-                    ]
+                    "role": "user",
+                    "parts": [{"text": speech_text}],
                 }
             ],
             "generationConfig": {
