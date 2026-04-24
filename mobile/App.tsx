@@ -2,6 +2,8 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import { useFonts, Fraunces_500Medium_Italic } from "@expo-google-fonts/fraunces";
+import { NotoSerifSC_500Medium } from "@expo-google-fonts/noto-serif-sc";
+import { SpaceGrotesk_600SemiBold } from "@expo-google-fonts/space-grotesk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -12,6 +14,7 @@ import {
   Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -157,6 +160,7 @@ type SpeechTurnResponse = {
   audio_job_id?: string | null;
   audio_pending?: boolean | null;
   tts_error?: string | null;
+  score?: number;
 };
 
 type VoiceExchange = {
@@ -579,6 +583,138 @@ const ListeningView = ({ liveTranscript, meteringLevel, fontsLoaded }: Listening
   );
 };
 
+// ─── Tone utilities ──────────────────────────────────────────────────────────
+
+const TONE_COLORS: Record<number, string> = {
+  1: "#2A7BE4",
+  2: "#2E9E5B",
+  3: "#C57B1A",
+  4: "#C84B31",
+  5: "#8F8578",
+};
+
+const detectTone = (syllable: string): number => {
+  if (/[āēīōūǖĀĒĪŌŪǕ]/.test(syllable)) return 1;
+  if (/[áéíóúǘÁÉÍÓÚǗ]/.test(syllable)) return 2;
+  if (/[ǎěǐǒǔǚǍĚǏǑǓǙ]/.test(syllable)) return 3;
+  if (/[àèìòùǜÀÈÌÒÙǛ]/.test(syllable)) return 4;
+  return 5;
+};
+
+const toneColor = (syllable: string) => TONE_COLORS[detectTone(syllable)];
+
+type MorphemeEntry = { hanzi: string; pinyin: string };
+
+const buildBreakdown = (chinese: string, pinyin: string): MorphemeEntry[] => {
+  const chars = [...chinese].filter((c) => /[㐀-鿿]/.test(c));
+  const syllables = pinyin.trim().split(/\s+/);
+  return chars.map((hanzi, i) => ({ hanzi, pinyin: syllables[i] ?? "·" }));
+};
+
+// ─── Response view ────────────────────────────────────────────────────────────
+
+type ResponseViewProps = {
+  turn: SpeechTurnResponse;
+  fontsLoaded: boolean;
+  onPlayAudio: (slow: boolean) => void;
+  isPlaying: boolean;
+};
+
+const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying }: ResponseViewProps) => {
+  const frauncesItalic = fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {};
+  const notoSerif = fontsLoaded ? { fontFamily: "NotoSerifSC_500Medium" } : {};
+  const spaceGrotesk = fontsLoaded ? { fontFamily: "SpaceGrotesk_600SemiBold" } : {};
+  const breakdown = buildBreakdown(turn.chinese, turn.pinyin);
+
+  return (
+    <ScrollView
+      style={styles.responseScroll}
+      contentContainerStyle={styles.responseScrollContent}
+      showsVerticalScrollIndicator={false}
+      alwaysBounceVertical={false}
+    >
+      {/* 1. YOU ASKED eyebrow + user transcript */}
+      {turn.transcript ? (
+        <View style={styles.resYouAskedBlock}>
+          <Text style={styles.resEyebrow}>YOU ASKED</Text>
+          <Text style={[styles.resYouAskedText, frauncesItalic]}>"{turn.transcript}"</Text>
+        </View>
+      ) : null}
+
+      {/* 2. Hero hanzi */}
+      <Text style={[styles.resHeroHanzi, notoSerif]}>{turn.chinese}</Text>
+
+      {/* 3. Tone-colored pinyin row */}
+      <View style={styles.resPinyinRow}>
+        {turn.pinyin.trim().split(/\s+/).map((syllable, i) => (
+          <Text key={i} style={[styles.resPinyinSyllable, spaceGrotesk, { color: toneColor(syllable) }]}>
+            {syllable}
+          </Text>
+        ))}
+      </View>
+
+      {/* 4. English gloss */}
+      <Text style={[styles.resGloss, frauncesItalic]}>"{turn.assistant_text}"</Text>
+
+      {/* 5. Action row */}
+      <View style={styles.resActionRow}>
+        <Pressable
+          style={[styles.resPlayButton, isPlaying && styles.resPlayButtonActive]}
+          onPress={() => onPlayAudio(false)}
+        >
+          <Text style={styles.resPlayButtonText}>▶ PLAY AUDIO</Text>
+        </Pressable>
+        <Pressable style={styles.resSlowButton} onPress={() => onPlayAudio(true)}>
+          <Text style={styles.resSlowButtonText}>½× SLOW</Text>
+        </Pressable>
+      </View>
+
+      {/* 6. Horizontal rule */}
+      <View style={styles.resRule} />
+
+      {/* 7. BREAKDOWN */}
+      {breakdown.length > 0 ? (
+        <>
+          <Text style={[styles.resEyebrow, { marginBottom: 4 }]}>BREAKDOWN</Text>
+          {breakdown.map(({ hanzi, pinyin }, i) => (
+            <View key={i}>
+              {i > 0 && <View style={styles.resMorphemeRule} />}
+              <View style={styles.resMorphemeRow}>
+                <Text style={[styles.resMorphemeHanzi, notoSerif]}>{hanzi}</Text>
+                <Text style={[styles.resMorphemePinyin, spaceGrotesk, { color: toneColor(pinyin) }]}>
+                  {pinyin}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </>
+      ) : null}
+
+      {/* 8. Horizontal rule */}
+      <View style={styles.resRule} />
+
+      {/* 9. YOUR PRONUNCIATION — only shown when the API returns a score */}
+      {turn.score != null ? (
+        <>
+          <Text style={styles.resEyebrow}>YOUR PRONUNCIATION</Text>
+          <View style={styles.resPronRow}>
+            <Text style={[styles.resPronScore, notoSerif]}>{turn.score}</Text>
+            <Text style={styles.resPronOutOf}>/100</Text>
+            {turn.notes?.[0] ? (
+              <Text style={[styles.resPronCompliment, frauncesItalic]} numberOfLines={3}>
+                {turn.notes[0]}
+              </Text>
+            ) : null}
+          </View>
+          {turn.notes?.[1] ? (
+            <Text style={styles.resPronNudge}>{turn.notes[1]}</Text>
+          ) : null}
+        </>
+      ) : null}
+    </ScrollView>
+  );
+};
+
 export default function App() {
   const [preference, setPreference] = useState<SpeakerPreference | null>(null);
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
@@ -608,7 +744,7 @@ export default function App() {
   const [liveTranscript, setLiveTranscript] = useState("");
   const [meteringLevel, setMeteringLevel] = useState(-160);
   const [processingTranscript, setProcessingTranscript] = useState("");
-  const [fontsLoaded] = useFonts({ Fraunces_500Medium_Italic });
+  const [fontsLoaded] = useFonts({ Fraunces_500Medium_Italic, NotoSerifSC_500Medium, SpaceGrotesk_600SemiBold });
   const activeTab = useUIStore((s) => s.activeTab);
   const setActiveTab = useUIStore((s) => s.setActiveTab);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -906,6 +1042,39 @@ export default function App() {
       await wait(1000);
     }
     setVoiceError("Audio is taking too long. Please try again.");
+  };
+
+  const handleReplayAudio = async (slow: boolean) => {
+    if (isPlayingPronunciation) return;
+    if (!soundRef.current) {
+      if (!voiceTurn) return;
+      const audioPayload = voiceTurn.audio ?? {
+        format: (voiceTurn.audio_mime?.includes("mpeg") ? "mp3" : "wav") as "mp3" | "wav",
+        url: voiceTurn.audio_url ?? undefined,
+        base64: voiceTurn.audio_base64 ?? undefined,
+      };
+      if (audioPayload.url || audioPayload.base64) {
+        try {
+          await playVoiceAudio(audioPayload, voiceTurn.audio_mime ?? undefined);
+        } catch (e) {
+          console.error("Replay error:", e);
+        }
+      }
+      return;
+    }
+    try {
+      setIsPlayingPronunciation(true);
+      await soundRef.current.setPositionAsync(0);
+      if (slow) {
+        await soundRef.current.setRateAsync(0.65, true);
+      } else {
+        await soundRef.current.setRateAsync(1.0, false);
+      }
+      await soundRef.current.playAsync();
+    } catch (e) {
+      console.error("Replay error:", e);
+      setIsPlayingPronunciation(false);
+    }
   };
 
   const startRecording = async () => {
@@ -1469,30 +1638,12 @@ export default function App() {
             />
           ) : voiceTurn ? (
             <Animated.View style={{ opacity: responseFade, alignSelf: "stretch" }}>
-              <View
-                style={[
-                  styles.voiceResultCenter,
-                  {
-                    backgroundColor: activeTheme.surfaceTint,
-                    borderColor: activeTheme.surfaceBorder,
-                  },
-                ]}
-              >
-                <Text style={[styles.voiceResultChinese, { color: activeTheme.titleText }]}>
-                  {voiceTurn.chinese}
-                </Text>
-                <Text style={[styles.voiceResultPinyin, { color: activeTheme.messageAccentText }]}>
-                  {voiceTurn.pinyin}
-                </Text>
-                <Text style={[styles.voiceResultEnglish, { color: activeTheme.subtitleText }]}>
-                  {voiceTurn.transcript}
-                </Text>
-                {voiceTurn.notes?.length ? (
-                  <Text style={[styles.voiceResultNote, { color: activeTheme.voiceSupportText }]}>
-                    {voiceTurn.notes[0]}
-                  </Text>
-                ) : null}
-              </View>
+              <ResponseView
+                turn={voiceTurn}
+                fontsLoaded={!!fontsLoaded}
+                onPlayAudio={(slow) => { void handleReplayAudio(slow); }}
+                isPlaying={isPlayingPronunciation}
+              />
             </Animated.View>
           ) : (
             <View style={styles.dailyPhraseCard}>
@@ -2298,5 +2449,149 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "600",
     fontSize: 14,
+  },
+  // ── Response view ────────────────────────────────────────────────────────────
+  responseScroll: {
+    alignSelf: "stretch",
+    maxHeight: 400,
+  },
+  responseScrollContent: {
+    paddingBottom: 8,
+  },
+  resEyebrow: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
+    marginBottom: 8,
+  },
+  resYouAskedBlock: {
+    marginBottom: 20,
+  },
+  resYouAskedText: {
+    fontSize: 17,
+    fontStyle: "italic",
+    lineHeight: 24,
+    color: "#544B40",
+  },
+  resHeroHanzi: {
+    fontSize: 54,
+    lineHeight: 62,
+    letterSpacing: 3,
+    fontWeight: "500",
+    color: "#15110D",
+    marginBottom: 10,
+  },
+  resPinyinRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    marginBottom: 10,
+  },
+  resPinyinSyllable: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  resGloss: {
+    fontSize: 17,
+    fontStyle: "italic",
+    color: "#544B40",
+    marginBottom: 18,
+    lineHeight: 24,
+  },
+  resActionRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 20,
+  },
+  resPlayButton: {
+    flex: 2,
+    backgroundColor: "#15110D",
+    borderRadius: 2,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  resPlayButtonActive: {
+    backgroundColor: "#3B3530",
+  },
+  resPlayButtonText: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 11,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#FFFFFF",
+  },
+  resSlowButton: {
+    flex: 1,
+    borderRadius: 2,
+    borderWidth: 1.5,
+    borderColor: "#15110D",
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  resSlowButtonText: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 11,
+    letterSpacing: 1.2,
+    color: "#15110D",
+  },
+  resRule: {
+    height: 1,
+    backgroundColor: "rgba(21,17,13,0.12)",
+    marginVertical: 20,
+  },
+  resMorphemeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+  },
+  resMorphemeHanzi: {
+    fontSize: 24,
+    fontWeight: "500",
+    color: "#15110D",
+    minWidth: 28,
+  },
+  resMorphemePinyin: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  resMorphemeRule: {
+    height: 1,
+    backgroundColor: "rgba(21,17,13,0.08)",
+  },
+  resPronRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  resPronScore: {
+    fontSize: 48,
+    fontWeight: "500",
+    color: "#1D4D3B",
+    lineHeight: 52,
+  },
+  resPronOutOf: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 14,
+    color: "#8F8578",
+    alignSelf: "flex-end",
+    marginBottom: 6,
+  },
+  resPronCompliment: {
+    flex: 1,
+    fontSize: 15,
+    fontStyle: "italic",
+    color: "#544B40",
+    lineHeight: 22,
+    alignSelf: "center",
+  },
+  resPronNudge: {
+    fontSize: 13,
+    color: "#8F8578",
+    lineHeight: 18,
   },
 });
