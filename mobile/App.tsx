@@ -744,7 +744,6 @@ export default function App() {
   const [selectedScenario, setSelectedScenario] = useState<PracticeScenario | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
   const [showDrawer, setShowDrawer] = useState(false);
-  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [meteringLevel, setMeteringLevel] = useState(-160);
   const [processingTranscript, setProcessingTranscript] = useState("");
@@ -1063,6 +1062,7 @@ export default function App() {
   };
 
   const handleTypeInsteadSubmit = async (text: string) => {
+    if (isRecording || isUploadingVoice) return;
     setShowCantHear(false);
     setIsUploadingVoice(true);
     setProcessingTranscript(text);
@@ -1832,13 +1832,12 @@ export default function App() {
                 <Pressable
                   key={s}
                   style={styles.suggestionRow}
-                  onPress={() => setPendingQuery(pendingQuery === s ? null : s)}
+                  onPress={() => { void handleTypeInsteadSubmit(s); }}
                 >
                   <Text
                     style={[
                       styles.suggestionText,
                       fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
-                      pendingQuery === s && styles.suggestionTextActive,
                     ]}
                   >
                     "{s}"
@@ -1848,21 +1847,6 @@ export default function App() {
               ))}
             </View>
           )}
-
-          {/* Pending query prompt — shown when a suggestion is tapped */}
-          {!isRecording && !voiceTurn && pendingQuery ? (
-            <View style={styles.pendingQueryWrap}>
-              <Text style={styles.pendingQueryLabel}>SAY SOMETHING LIKE</Text>
-              <Text
-                style={[
-                  styles.pendingQueryText,
-                  fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
-                ]}
-              >
-                "{pendingQuery}"
-              </Text>
-            </View>
-          ) : null}
 
           <Animated.View
             style={[
@@ -2428,31 +2412,10 @@ const styles = StyleSheet.create({
     color: "#15110D",
     flex: 1,
   },
-  suggestionTextActive: {
-    color: "#1D4D3B",
-  },
   suggestionChevron: {
     fontSize: 18,
     color: "#8F8578",
     marginLeft: 8,
-  },
-  pendingQueryWrap: {
-    alignItems: "center",
-    paddingVertical: 10,
-  },
-  pendingQueryLabel: {
-    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
-    fontSize: 9,
-    letterSpacing: 1.6,
-    textTransform: "uppercase",
-    color: "#8F8578",
-    marginBottom: 4,
-  },
-  pendingQueryText: {
-    fontSize: 15,
-    fontStyle: "italic",
-    color: "#1D4D3B",
-    textAlign: "center",
   },
   dailyPhrase: {
     alignItems: "center",
