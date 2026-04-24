@@ -36,6 +36,7 @@ import { TOKENS, getToneColor, FONT_FAMILIES, detectTone, toneColor } from "./sr
 
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
+import CantHearCard from "./src/components/CantHearCard";
 import HistoryScreen from "./src/components/HistoryScreen";
 import LockScreen from "./src/components/LockScreen";
 import SavedScreen from "./src/components/SavedScreen";
@@ -175,6 +176,7 @@ type SpeechTurnResponse = {
   audio_pending?: boolean | null;
   tts_error?: string | null;
   score?: number;
+  transcript_confidence?: number;
 };
 
 type VoiceExchange = {
@@ -731,6 +733,7 @@ export default function App() {
   const [isPlayingPronunciation, setIsPlayingPronunciation] = useState(false);
   const [showVoiceComplete, setShowVoiceComplete] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [showCantHear, setShowCantHear] = useState(false);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
   const [voiceHistory, setVoiceHistory] = useState<VoiceExchange[]>([]);
   const [showScenarioPicker, setShowScenarioPicker] = useState(false);
@@ -1053,6 +1056,86 @@ export default function App() {
     setVoiceError("Audio is taking too long. Please try again.");
   };
 
+  const handleTypeInsteadSubmit = async (text: string) => {
+    setShowCantHear(false);
+    setIsUploadingVoice(true);
+    setProcessingTranscript(text);
+    setVoiceError(null);
+    try {
+      const formData = new FormData();
+      formData.append("text", text);
+      formData.append("level", "beginner");
+      formData.append("scenario", selectedScenario?.id ?? "general");
+      const sourceLang = preference === "chinese" ? "zh" : "en";
+      const targetLang = preference === "chinese" ? "en" : "zh";
+      formData.append("source_lang", sourceLang);
+      formData.append("target_lang", targetLang);
+      formData.append("voice", selectedVoice);
+
+      logApiBaseUrl("Text query");
+      const { response } = await apiFetchWithTimeout(
+        "/v1/speech/turn",
+        { method: "POST", body: formData },
+        90_000,
+        1
+      );
+      const raw = await response.text();
+      if (!response.ok) throw new Error(`Text query failed ${response.status}: ${raw}`);
+
+      const data = JSON.parse(raw) as SpeechTurnResponse;
+      setVoiceTurn(data);
+      addHistoryEntry({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: Date.now(),
+        transcript: data.transcript || text,
+        chinese: data.chinese,
+        pinyin: data.pinyin,
+        english: data.assistant_text,
+        notes: data.notes ?? [],
+        audioUrl: data.audio_url ?? null,
+      });
+      setVoiceHistory((previous) => [
+        ...previous.slice(-2),
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          userTranscript: text,
+          tutorChinese: data.chinese,
+          tutorPinyin: data.pinyin,
+          tutorEnglish: data.assistant_text,
+        },
+      ]);
+      setShowVoiceComplete(true);
+      if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
+      completeTimeoutRef.current = setTimeout(() => {
+        setShowVoiceComplete(false);
+        completeTimeoutRef.current = null;
+      }, 8000);
+      const audioPayload = data.audio ?? {
+        format: (data.audio_mime?.includes("mpeg") ? "mp3" : "wav") as "mp3" | "wav",
+        url: data.audio_url ?? undefined,
+        base64: data.audio_base64 ?? undefined,
+      };
+      if (audioPayload.url || audioPayload.base64) {
+        try {
+          await playVoiceAudio(audioPayload, data.audio_mime);
+        } catch (playbackError) {
+          console.error("Playback error:", playbackError);
+          setIsPlayingPronunciation(false);
+          setVoiceError("Audio playback failed. Please check your volume and try again.");
+        }
+      } else if (data.audio_pending && data.audio_job_id) {
+        await pollForAudioJob(data.audio_job_id);
+      } else {
+        setVoiceError(data.tts_error ?? "Audio unavailable. Please try again.");
+      }
+    } catch (err) {
+      console.error("Type-instead error:", err);
+      setVoiceError("Translation failed. Please try again.");
+    } finally {
+      setIsUploadingVoice(false);
+    }
+  };
+
   const handleReplayAudio = async (slow: boolean) => {
     if (isPlayingPronunciation) return;
     if (!soundRef.current) {
@@ -1102,6 +1185,7 @@ export default function App() {
       completeTimeoutRef.current = null;
     }
     setShowVoiceComplete(false);
+    setShowCantHear(false);
     setVoiceError(null);
     if (soundRef.current) {
       await soundRef.current.stopAsync();
@@ -1195,6 +1279,16 @@ export default function App() {
 
       const data = JSON.parse(raw) as SpeechTurnResponse;
       console.log("Voice Response Payload:", data);
+
+      // Surface the can't-hear card instead of an error toast for empty/uncertain STT.
+      const isEmpty = !data.transcript || data.transcript.trim().length < 2;
+      const isLowConfidence =
+        typeof data.transcript_confidence === "number" && data.transcript_confidence < 0.4;
+      if (isEmpty || isLowConfidence) {
+        setShowCantHear(true);
+        return; // finally still runs → isUploadingVoice → false
+      }
+
       setVoiceTurn(data);
       addHistoryEntry({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -1557,7 +1651,14 @@ export default function App() {
         ) : activeTab === "SAVED" ? (
           <SavedScreen fontsLoaded={!!fontsLoaded} />
         ) : null}
-        {activeTab === "SPEAK" ? <View style={styles.centerStage}>
+        {activeTab === "SPEAK" && showCantHear ? (
+          <CantHearCard
+            fontsLoaded={!!fontsLoaded}
+            onTryAgain={() => setShowCantHear(false)}
+            onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
+          />
+        ) : null}
+        {activeTab === "SPEAK" && !showCantHear ? <View style={styles.centerStage}>
           <View style={styles.practiceScenarioWrap}>
             <Pressable
               style={[
