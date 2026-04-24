@@ -397,6 +397,92 @@ const Onboarding = ({
   );
 };
 
+const BAR_COUNT = 48;
+
+type ListeningViewProps = {
+  liveTranscript: string;
+  meteringLevel: number;
+  fontsLoaded: boolean;
+};
+
+const ListeningView = ({ liveTranscript, meteringLevel, fontsLoaded }: ListeningViewProps) => {
+  const barValues = useRef(
+    Array.from({ length: BAR_COUNT }, () => new Animated.Value(3))
+  ).current;
+  const caretBlink = useRef(new Animated.Value(1)).current;
+  const dotPulse = useRef(new Animated.Value(1)).current;
+  const meteringRef = useRef(meteringLevel);
+
+  useEffect(() => { meteringRef.current = meteringLevel; }, [meteringLevel]);
+
+  useEffect(() => {
+    const blink = Animated.loop(
+      Animated.sequence([
+        Animated.timing(caretBlink, { toValue: 0, duration: 500, useNativeDriver: true }),
+        Animated.timing(caretBlink, { toValue: 1, duration: 500, useNativeDriver: true }),
+      ])
+    );
+    blink.start();
+    return () => blink.stop();
+  }, [caretBlink]);
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dotPulse, { toValue: 0.3, duration: 600, useNativeDriver: true }),
+        Animated.timing(dotPulse, { toValue: 1.0, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [dotPulse]);
+
+  useEffect(() => {
+    let phase = 0;
+    const id = setInterval(() => {
+      // dBFS -60..0 → 0..1; floor at 0.15 so bars are never completely flat
+      const level = Math.max(0.15, Math.min(1, (meteringRef.current + 60) / 60));
+      phase += 0.18;
+      barValues.forEach((v, i) => {
+        const envelope = Math.sin((i / (BAR_COUNT - 1)) * Math.PI); // tall center
+        const wave = 0.5 + 0.5 * Math.sin(2 * Math.PI * (i / 10) - phase);
+        v.setValue(3 + envelope * wave * level * 37);
+      });
+    }, 50);
+    return () => clearInterval(id);
+  }, [barValues]);
+
+  return (
+    <View style={styles.listeningWrap}>
+      {/* ● RECORDING eyebrow */}
+      <View style={styles.recordingEyebrow}>
+        <Animated.View style={[styles.recordingDot, { opacity: dotPulse }]} />
+        <Text style={styles.recordingLabel}># RECORDING</Text>
+      </View>
+
+      {/* Live transcript + blinking caret */}
+      <View style={styles.transcriptBlock}>
+        <Text
+          style={[
+            styles.transcriptText,
+            fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+          ]}
+        >
+          {liveTranscript || "Listening…"}
+        </Text>
+        <Animated.View style={[styles.transcriptCaret, { opacity: caretBlink }]} />
+      </View>
+
+      {/* 48-bar waveform */}
+      <View style={styles.waveform}>
+        {barValues.map((v, i) => (
+          <Animated.View key={i} style={[styles.waveBar, { height: v }]} />
+        ))}
+      </View>
+    </View>
+  );
+};
+
 export default function App() {
   const [preference, setPreference] = useState<SpeakerPreference | null>(null);
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
@@ -423,6 +509,8 @@ export default function App() {
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
   const [showDrawer, setShowDrawer] = useState(false);
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const [meteringLevel, setMeteringLevel] = useState(-160);
   const [fontsLoaded] = useFonts({ Fraunces_500Medium_Italic });
   const activeTab = useUIStore((s) => s.activeTab);
   const setActiveTab = useUIStore((s) => s.setActiveTab);
@@ -750,11 +838,17 @@ export default function App() {
       playsInSilentModeIOS: true,
     });
     const recording = new Audio.Recording();
-    await recording.prepareToRecordAsync(
-      Audio.RecordingOptionsPresets.HIGH_QUALITY
-    );
+    recording.setOnRecordingStatusUpdate((status) => {
+      if (status.metering != null) setMeteringLevel(status.metering);
+    });
+    await recording.prepareToRecordAsync({
+      ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      isMeteringEnabled: true,
+    });
     await recording.startAsync();
     recordingRef.current = recording;
+    setLiveTranscript("");
+    setMeteringLevel(-160);
     setIsRecording(true);
   };
 
@@ -768,6 +862,8 @@ export default function App() {
     setShowVoiceComplete(false);
     setIsPlayingPronunciation(false);
     setVoiceError(null);
+    setLiveTranscript("");
+    setMeteringLevel(-160);
     try {
       await recording.stopAndUnloadAsync();
       const status = await recording.getStatusAsync();
@@ -1246,7 +1342,13 @@ export default function App() {
             </View>
           ) : null}
 
-          {voiceTurn ? (
+          {isRecording ? (
+            <ListeningView
+              liveTranscript={liveTranscript}
+              meteringLevel={meteringLevel}
+              fontsLoaded={!!fontsLoaded}
+            />
+          ) : voiceTurn ? (
             <View
               style={[
                 styles.voiceResultCenter,
@@ -1328,7 +1430,7 @@ export default function App() {
           )}
 
           {/* Pending query prompt — shown when a suggestion is tapped */}
-          {!voiceTurn && pendingQuery ? (
+          {!isRecording && !voiceTurn && pendingQuery ? (
             <View style={styles.pendingQueryWrap}>
               <Text style={styles.pendingQueryLabel}>SAY SOMETHING LIKE</Text>
               <Text
@@ -1730,6 +1832,56 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingTop: 20,
     paddingBottom: 32,
+  },
+  listeningWrap: {
+    alignSelf: "stretch",
+  },
+  recordingEyebrow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 18,
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#1D4D3B",
+  },
+  recordingLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#1D4D3B",
+  },
+  transcriptBlock: {
+    marginBottom: 28,
+  },
+  transcriptText: {
+    fontSize: 28,
+    fontStyle: "italic",
+    lineHeight: 36,
+    color: "#15110D",
+  },
+  transcriptCaret: {
+    width: 2,
+    height: 26,
+    backgroundColor: "#1D4D3B",
+    borderRadius: 1,
+    marginTop: 6,
+  },
+  waveform: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 44,
+    gap: 3,
+  },
+  waveBar: {
+    width: 3,
+    backgroundColor: "#15110D",
+    borderRadius: 1.5,
   },
   dailyPhraseCard: {
     alignSelf: "stretch",
