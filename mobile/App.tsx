@@ -397,6 +397,102 @@ const Onboarding = ({
   );
 };
 
+// ─── Shimmer skeleton ────────────────────────────────────────────────────────
+
+const ShimmerSkeleton = ({
+  height,
+  shimmerAnim,
+}: {
+  height: number;
+  shimmerAnim: Animated.Value;
+}) => {
+  const translateX = shimmerAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-140, 360],
+  });
+  return (
+    <View style={[styles.skeletonBar, { height }]}>
+      <Animated.View style={[styles.shimmerHighlight, { transform: [{ translateX }] }]} />
+    </View>
+  );
+};
+
+// ─── Processing / translating screen ─────────────────────────────────────────
+
+type ProcessingViewProps = { processingTranscript: string; fontsLoaded: boolean };
+
+const ProcessingView = ({ processingTranscript, fontsLoaded }: ProcessingViewProps) => {
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const dot1 = useRef(new Animated.Value(0)).current;
+  const dot2 = useRef(new Animated.Value(0)).current;
+  const dot3 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(shimmerAnim, {
+        toValue: 1,
+        duration: 1600,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [shimmerAnim]);
+
+  useEffect(() => {
+    const bounce = (anim: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          ...(delay > 0 ? [Animated.delay(delay)] : []),
+          Animated.timing(anim, { toValue: -6, duration: 260, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0,  duration: 260, easing: Easing.in(Easing.quad),  useNativeDriver: true }),
+          Animated.delay(Math.max(0, 480 - delay)),
+        ])
+      );
+    const a1 = bounce(dot1, 0);
+    const a2 = bounce(dot2, 160);
+    const a3 = bounce(dot3, 320);
+    a1.start(); a2.start(); a3.start();
+    return () => { a1.stop(); a2.stop(); a3.stop(); };
+  }, [dot1, dot2, dot3]);
+
+  return (
+    <View style={styles.processingWrap}>
+      {/* YOU ASKED */}
+      {processingTranscript ? (
+        <View style={styles.youAskedBlock}>
+          <Text style={styles.youAskedLabel}>YOU ASKED</Text>
+          <Text
+            style={[
+              styles.youAskedText,
+              fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+            ]}
+          >
+            "{processingTranscript}"
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Bouncing dots + TRANSLATING */}
+      <View style={styles.translatingEyebrow}>
+        {[dot1, dot2, dot3].map((d, i) => (
+          <Animated.View key={i} style={[styles.translatingDot, { transform: [{ translateY: d }] }]} />
+        ))}
+        <Text style={styles.translatingLabel}>TRANSLATING</Text>
+      </View>
+
+      {/* Shimmer skeletons: 36px hero hint, two 14px sub-lines */}
+      <View style={styles.skeletonGroup}>
+        <ShimmerSkeleton height={36} shimmerAnim={shimmerAnim} />
+        <ShimmerSkeleton height={14} shimmerAnim={shimmerAnim} />
+        <ShimmerSkeleton height={14} shimmerAnim={shimmerAnim} />
+      </View>
+    </View>
+  );
+};
+
+// ─── Listening screen ─────────────────────────────────────────────────────────
 const BAR_COUNT = 48;
 
 type ListeningViewProps = {
@@ -511,12 +607,14 @@ export default function App() {
   const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [meteringLevel, setMeteringLevel] = useState(-160);
+  const [processingTranscript, setProcessingTranscript] = useState("");
   const [fontsLoaded] = useFonts({ Fraunces_500Medium_Italic });
   const activeTab = useUIStore((s) => s.activeTab);
   const setActiveTab = useUIStore((s) => s.setActiveTab);
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const responseFade = useRef(new Animated.Value(0)).current;
   const stageTransition = useRef(new Animated.Value(0)).current;
   const ambientDriftA = useRef(new Animated.Value(0)).current;
   const ambientDriftB = useRef(new Animated.Value(0)).current;
@@ -847,6 +945,7 @@ export default function App() {
     });
     await recording.startAsync();
     recordingRef.current = recording;
+    setProcessingTranscript("");
     setLiveTranscript("");
     setMeteringLevel(-160);
     setIsRecording(true);
@@ -862,6 +961,7 @@ export default function App() {
     setShowVoiceComplete(false);
     setIsPlayingPronunciation(false);
     setVoiceError(null);
+    setProcessingTranscript(liveTranscript);
     setLiveTranscript("");
     setMeteringLevel(-160);
     try {
@@ -1005,6 +1105,20 @@ export default function App() {
       useNativeDriver: true,
     }).start();
   }, [stageTransition, voiceStageState]);
+
+  useEffect(() => {
+    if (voiceTurn) {
+      responseFade.setValue(0);
+      Animated.timing(responseFade, {
+        toValue: 1,
+        duration: 380,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    } else {
+      responseFade.setValue(0);
+    }
+  }, [voiceTurn, responseFade]);
 
   useEffect(() => {
     return () => {
@@ -1348,31 +1462,38 @@ export default function App() {
               meteringLevel={meteringLevel}
               fontsLoaded={!!fontsLoaded}
             />
+          ) : isUploadingVoice ? (
+            <ProcessingView
+              processingTranscript={processingTranscript}
+              fontsLoaded={!!fontsLoaded}
+            />
           ) : voiceTurn ? (
-            <View
-              style={[
-                styles.voiceResultCenter,
-                {
-                  backgroundColor: activeTheme.surfaceTint,
-                  borderColor: activeTheme.surfaceBorder,
-                },
-              ]}
-            >
-              <Text style={[styles.voiceResultChinese, { color: activeTheme.titleText }]}>
-                {voiceTurn.chinese}
-              </Text>
-              <Text style={[styles.voiceResultPinyin, { color: activeTheme.messageAccentText }]}>
-                {voiceTurn.pinyin}
-              </Text>
-              <Text style={[styles.voiceResultEnglish, { color: activeTheme.subtitleText }]}>
-                {voiceTurn.transcript}
-              </Text>
-              {voiceTurn.notes?.length ? (
-                <Text style={[styles.voiceResultNote, { color: activeTheme.voiceSupportText }]}>
-                  {voiceTurn.notes[0]}
+            <Animated.View style={{ opacity: responseFade, alignSelf: "stretch" }}>
+              <View
+                style={[
+                  styles.voiceResultCenter,
+                  {
+                    backgroundColor: activeTheme.surfaceTint,
+                    borderColor: activeTheme.surfaceBorder,
+                  },
+                ]}
+              >
+                <Text style={[styles.voiceResultChinese, { color: activeTheme.titleText }]}>
+                  {voiceTurn.chinese}
                 </Text>
-              ) : null}
-            </View>
+                <Text style={[styles.voiceResultPinyin, { color: activeTheme.messageAccentText }]}>
+                  {voiceTurn.pinyin}
+                </Text>
+                <Text style={[styles.voiceResultEnglish, { color: activeTheme.subtitleText }]}>
+                  {voiceTurn.transcript}
+                </Text>
+                {voiceTurn.notes?.length ? (
+                  <Text style={[styles.voiceResultNote, { color: activeTheme.voiceSupportText }]}>
+                    {voiceTurn.notes[0]}
+                  </Text>
+                ) : null}
+              </View>
+            </Animated.View>
           ) : (
             <View style={styles.dailyPhraseCard}>
               {/* Eyebrow */}
@@ -1833,6 +1954,64 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 32,
   },
+  // ── Processing / translating ──────────────────────────────────────────────
+  processingWrap: {
+    alignSelf: "stretch",
+  },
+  youAskedBlock: {
+    marginBottom: 20,
+  },
+  youAskedLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
+    marginBottom: 6,
+  },
+  youAskedText: {
+    fontSize: 19,
+    fontStyle: "italic",
+    lineHeight: 26,
+    color: "#544B40",
+  },
+  translatingEyebrow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 20,
+  },
+  translatingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#1D4D3B",
+  },
+  translatingLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#1D4D3B",
+  },
+  skeletonGroup: {
+    gap: 10,
+  },
+  skeletonBar: {
+    alignSelf: "stretch",
+    backgroundColor: "rgba(21,17,13,0.08)",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  shimmerHighlight: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 130,
+    backgroundColor: "#E3EADD",
+    opacity: 0.72,
+  },
+  // ── Listening ─────────────────────────────────────────────────────────────
   listeningWrap: {
     alignSelf: "stretch",
   },
