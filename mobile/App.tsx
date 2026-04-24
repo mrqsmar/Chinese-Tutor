@@ -1,23 +1,45 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
+import {
+  useFonts,
+  Fraunces_400Regular,
+  Fraunces_400Regular_Italic,
+  Fraunces_500Medium,
+  Fraunces_500Medium_Italic,
+} from "@expo-google-fonts/fraunces";
+import { NotoSerifSC_400Regular, NotoSerifSC_500Medium } from "@expo-google-fonts/noto-serif-sc";
+import {
+  SpaceGrotesk_500Medium,
+  SpaceGrotesk_600SemiBold,
+  SpaceGrotesk_700Bold,
+} from "@expo-google-fonts/space-grotesk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
   Easing,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   SafeAreaView,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 
+import { useUIStore } from "./src/store/uiStore";
+import { useHistoryStore, useSavedStore } from "./src/store/historyStore";
+import { TOKENS, getToneColor, FONT_FAMILIES, detectTone, toneColor } from "./src/styles/tokens";
+
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
+import CantHearCard from "./src/components/CantHearCard";
+import HistoryScreen from "./src/components/HistoryScreen";
 import LockScreen from "./src/components/LockScreen";
+import SavedScreen from "./src/components/SavedScreen";
 import VoiceStage, { type VoiceStageState } from "./src/components/VoiceStage";
 import {
   clearUnlock,
@@ -64,12 +86,25 @@ const DAILY_PHRASES = [
   { chinese: "路上小心", pinyin: "lù shàng xiǎo xīn", english: "Be safe on the road" },
 ];
 
+const getDailyPhraseIndex = () => {
+  const startOfYear = new Date(new Date().getFullYear(), 0, 0).getTime();
+  const now = new Date().getTime();
+  const dayOfYear = Math.floor((now - startOfYear) / 86400000);
+  return (dayOfYear % DAILY_PHRASES.length) + 1;
+};
+
 const getDailyPhrase = () => {
   const startOfYear = new Date(new Date().getFullYear(), 0, 0).getTime();
   const now = new Date().getTime();
   const dayOfYear = Math.floor((now - startOfYear) / 86400000);
   return DAILY_PHRASES[dayOfYear % DAILY_PHRASES.length];
 };
+
+const SUGGESTIONS = [
+  "How do I order three siu mai?",
+  "Ask someone out for dinner",
+  "A polite way to decline",
+];
 
 const isTruthy = (value: string | undefined) =>
   ["1", "true", "yes", "on"].includes((value ?? "").toLowerCase());
@@ -140,6 +175,8 @@ type SpeechTurnResponse = {
   audio_job_id?: string | null;
   audio_pending?: boolean | null;
   tts_error?: string | null;
+  score?: number;
+  transcript_confidence?: number;
 };
 
 type VoiceExchange = {
@@ -380,6 +417,303 @@ const Onboarding = ({
   );
 };
 
+// ─── Shimmer skeleton ────────────────────────────────────────────────────────
+
+const ShimmerSkeleton = ({
+  height,
+  shimmerAnim,
+}: {
+  height: number;
+  shimmerAnim: Animated.Value;
+}) => {
+  const translateX = shimmerAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-140, 360],
+  });
+  return (
+    <View style={[styles.skeletonBar, { height }]}>
+      <Animated.View style={[styles.shimmerHighlight, { transform: [{ translateX }] }]} />
+    </View>
+  );
+};
+
+// ─── Processing / translating screen ─────────────────────────────────────────
+
+type ProcessingViewProps = { processingTranscript: string; fontsLoaded: boolean };
+
+const ProcessingView = ({ processingTranscript, fontsLoaded }: ProcessingViewProps) => {
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const dot1 = useRef(new Animated.Value(0)).current;
+  const dot2 = useRef(new Animated.Value(0)).current;
+  const dot3 = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(shimmerAnim, {
+        toValue: 1,
+        duration: 1600,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [shimmerAnim]);
+
+  useEffect(() => {
+    const bounce = (anim: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          ...(delay > 0 ? [Animated.delay(delay)] : []),
+          Animated.timing(anim, { toValue: -6, duration: 260, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0,  duration: 260, easing: Easing.in(Easing.quad),  useNativeDriver: true }),
+          Animated.delay(Math.max(0, 480 - delay)),
+        ])
+      );
+    const a1 = bounce(dot1, 0);
+    const a2 = bounce(dot2, 160);
+    const a3 = bounce(dot3, 320);
+    a1.start(); a2.start(); a3.start();
+    return () => { a1.stop(); a2.stop(); a3.stop(); };
+  }, [dot1, dot2, dot3]);
+
+  return (
+    <View style={styles.processingWrap}>
+      {/* YOU ASKED */}
+      {processingTranscript ? (
+        <View style={styles.youAskedBlock}>
+          <Text style={styles.youAskedLabel}>YOU ASKED</Text>
+          <Text
+            style={[
+              styles.youAskedText,
+              fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+            ]}
+          >
+            "{processingTranscript}"
+          </Text>
+        </View>
+      ) : null}
+
+      {/* Bouncing dots + TRANSLATING */}
+      <View style={styles.translatingEyebrow}>
+        {[dot1, dot2, dot3].map((d, i) => (
+          <Animated.View key={i} style={[styles.translatingDot, { transform: [{ translateY: d }] }]} />
+        ))}
+        <Text style={styles.translatingLabel}>TRANSLATING</Text>
+      </View>
+
+      {/* Shimmer skeletons: 36px hero hint, two 14px sub-lines */}
+      <View style={styles.skeletonGroup}>
+        <ShimmerSkeleton height={36} shimmerAnim={shimmerAnim} />
+        <ShimmerSkeleton height={14} shimmerAnim={shimmerAnim} />
+        <ShimmerSkeleton height={14} shimmerAnim={shimmerAnim} />
+      </View>
+    </View>
+  );
+};
+
+// ─── Listening screen ─────────────────────────────────────────────────────────
+const BAR_COUNT = 48;
+
+type ListeningViewProps = {
+  liveTranscript: string;
+  meteringLevel: number;
+  fontsLoaded: boolean;
+};
+
+const ListeningView = ({ liveTranscript, meteringLevel, fontsLoaded }: ListeningViewProps) => {
+  const barValues = useRef(
+    Array.from({ length: BAR_COUNT }, () => new Animated.Value(3))
+  ).current;
+  const caretBlink = useRef(new Animated.Value(1)).current;
+  const dotPulse = useRef(new Animated.Value(1)).current;
+  const meteringRef = useRef(meteringLevel);
+
+  useEffect(() => { meteringRef.current = meteringLevel; }, [meteringLevel]);
+
+  useEffect(() => {
+    const blink = Animated.loop(
+      Animated.sequence([
+        Animated.timing(caretBlink, { toValue: 0, duration: 500, useNativeDriver: true }),
+        Animated.timing(caretBlink, { toValue: 1, duration: 500, useNativeDriver: true }),
+      ])
+    );
+    blink.start();
+    return () => blink.stop();
+  }, [caretBlink]);
+
+  useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(dotPulse, { toValue: 0.3, duration: 600, useNativeDriver: true }),
+        Animated.timing(dotPulse, { toValue: 1.0, duration: 600, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [dotPulse]);
+
+  useEffect(() => {
+    let phase = 0;
+    const id = setInterval(() => {
+      // dBFS -60..0 → 0..1; floor at 0.15 so bars are never completely flat
+      const level = Math.max(0.15, Math.min(1, (meteringRef.current + 60) / 60));
+      phase += 0.18;
+      barValues.forEach((v, i) => {
+        const envelope = Math.sin((i / (BAR_COUNT - 1)) * Math.PI); // tall center
+        const wave = 0.5 + 0.5 * Math.sin(2 * Math.PI * (i / 10) - phase);
+        v.setValue(3 + envelope * wave * level * 37);
+      });
+    }, 50);
+    return () => clearInterval(id);
+  }, [barValues]);
+
+  return (
+    <View style={styles.listeningWrap}>
+      {/* ● RECORDING eyebrow */}
+      <View style={styles.recordingEyebrow}>
+        <Animated.View style={[styles.recordingDot, { opacity: dotPulse }]} />
+        <Text style={styles.recordingLabel}># RECORDING</Text>
+      </View>
+
+      {/* Live transcript + blinking caret */}
+      <View style={styles.transcriptBlock}>
+        <Text
+          style={[
+            styles.transcriptText,
+            fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+          ]}
+        >
+          {liveTranscript || "Listening…"}
+        </Text>
+        <Animated.View style={[styles.transcriptCaret, { opacity: caretBlink }]} />
+      </View>
+
+      {/* 48-bar waveform */}
+      <View style={styles.waveform}>
+        {barValues.map((v, i) => (
+          <Animated.View key={i} style={[styles.waveBar, { height: v }]} />
+        ))}
+      </View>
+    </View>
+  );
+};
+
+// Tone utilities re-exported from tokens — detectTone, toneColor, getToneColor.
+
+type MorphemeEntry = { hanzi: string; pinyin: string };
+
+const buildBreakdown = (chinese: string, pinyin: string): MorphemeEntry[] => {
+  const chars = [...chinese].filter((c) => /[㐀-鿿]/.test(c));
+  const syllables = pinyin.trim().split(/\s+/);
+  return chars.map((hanzi, i) => ({ hanzi, pinyin: syllables[i] ?? "·" }));
+};
+
+// ─── Response view ────────────────────────────────────────────────────────────
+
+type ResponseViewProps = {
+  turn: SpeechTurnResponse;
+  fontsLoaded: boolean;
+  onPlayAudio: (slow: boolean) => void;
+  isPlaying: boolean;
+};
+
+const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying }: ResponseViewProps) => {
+  const frauncesItalic = fontsLoaded ? { fontFamily: FONT_FAMILIES.frauncesMediumItalic } : {};
+  const notoSerif = fontsLoaded ? { fontFamily: FONT_FAMILIES.notoSerifMedium } : {};
+  const spaceGrotesk = fontsLoaded ? { fontFamily: FONT_FAMILIES.spaceGroteskSemiBold } : {};
+  const spaceGroteskBold = fontsLoaded ? { fontFamily: FONT_FAMILIES.spaceGroteskBold } : {};
+  const breakdown = buildBreakdown(turn.chinese, turn.pinyin);
+
+  return (
+    <ScrollView
+      style={styles.responseScroll}
+      contentContainerStyle={styles.responseScrollContent}
+      showsVerticalScrollIndicator={false}
+      alwaysBounceVertical={false}
+    >
+      {/* 1. YOU ASKED eyebrow + user transcript */}
+      {turn.transcript ? (
+        <View style={styles.resYouAskedBlock}>
+          <Text style={styles.resEyebrow}>YOU ASKED</Text>
+          <Text style={[styles.resYouAskedText, frauncesItalic]}>"{turn.transcript}"</Text>
+        </View>
+      ) : null}
+
+      {/* 2. Hero hanzi */}
+      <Text style={[styles.resHeroHanzi, notoSerif]}>{turn.chinese}</Text>
+
+      {/* 3. Tone-colored pinyin row */}
+      <View style={styles.resPinyinRow}>
+        {turn.pinyin.trim().split(/\s+/).map((syllable, i) => (
+          <Text key={i} style={[styles.resPinyinSyllable, spaceGroteskBold, { color: toneColor(syllable) }]}>
+            {syllable}
+          </Text>
+        ))}
+      </View>
+
+      {/* 4. English gloss */}
+      <Text style={[styles.resGloss, frauncesItalic]}>"{turn.assistant_text}"</Text>
+
+      {/* 5. Action row */}
+      <View style={styles.resActionRow}>
+        <Pressable
+          style={[styles.resPlayButton, isPlaying && styles.resPlayButtonActive]}
+          onPress={() => onPlayAudio(false)}
+        >
+          <Text style={styles.resPlayButtonText}>▶ PLAY AUDIO</Text>
+        </Pressable>
+        <Pressable style={styles.resSlowButton} onPress={() => onPlayAudio(true)}>
+          <Text style={styles.resSlowButtonText}>½× SLOW</Text>
+        </Pressable>
+      </View>
+
+      {/* 6. Horizontal rule */}
+      <View style={styles.resRule} />
+
+      {/* 7. BREAKDOWN */}
+      {breakdown.length > 0 ? (
+        <>
+          <Text style={[styles.resEyebrow, { marginBottom: 4 }]}>BREAKDOWN</Text>
+          {breakdown.map(({ hanzi, pinyin }, i) => (
+            <View key={i}>
+              {i > 0 && <View style={styles.resMorphemeRule} />}
+              <View style={styles.resMorphemeRow}>
+                <Text style={[styles.resMorphemeHanzi, notoSerif]}>{hanzi}</Text>
+                <Text style={[styles.resMorphemePinyin, spaceGrotesk, { color: toneColor(pinyin) }]}>
+                  {pinyin}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </>
+      ) : null}
+
+      {/* 8. Horizontal rule */}
+      <View style={styles.resRule} />
+
+      {/* 9. YOUR PRONUNCIATION — only shown when the API returns a score */}
+      {turn.score != null ? (
+        <>
+          <Text style={styles.resEyebrow}>YOUR PRONUNCIATION</Text>
+          <View style={styles.resPronRow}>
+            <Text style={[styles.resPronScore, notoSerif]}>{turn.score}</Text>
+            <Text style={styles.resPronOutOf}>/100</Text>
+            {turn.notes?.[0] ? (
+              <Text style={[styles.resPronCompliment, frauncesItalic]} numberOfLines={3}>
+                {turn.notes[0]}
+              </Text>
+            ) : null}
+          </View>
+          {turn.notes?.[1] ? (
+            <Text style={styles.resPronNudge}>{turn.notes[1]}</Text>
+          ) : null}
+        </>
+      ) : null}
+    </ScrollView>
+  );
+};
+
 export default function App() {
   const [preference, setPreference] = useState<SpeakerPreference | null>(null);
   const [isLoadingPreference, setIsLoadingPreference] = useState(true);
@@ -399,14 +733,36 @@ export default function App() {
   const [isPlayingPronunciation, setIsPlayingPronunciation] = useState(false);
   const [showVoiceComplete, setShowVoiceComplete] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [showCantHear, setShowCantHear] = useState(false);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
   const [voiceHistory, setVoiceHistory] = useState<VoiceExchange[]>([]);
   const [showScenarioPicker, setShowScenarioPicker] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState<PracticeScenario | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
+  const [showDrawer, setShowDrawer] = useState(false);
+  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
+  const [liveTranscript, setLiveTranscript] = useState("");
+  const [meteringLevel, setMeteringLevel] = useState(-160);
+  const [processingTranscript, setProcessingTranscript] = useState("");
+  const [fontsLoaded] = useFonts({
+    Fraunces_400Regular,
+    Fraunces_400Regular_Italic,
+    Fraunces_500Medium,
+    Fraunces_500Medium_Italic,
+    NotoSerifSC_400Regular,
+    NotoSerifSC_500Medium,
+    SpaceGrotesk_500Medium,
+    SpaceGrotesk_600SemiBold,
+    SpaceGrotesk_700Bold,
+  });
+  const activeTab = useUIStore((s) => s.activeTab);
+  const setActiveTab = useUIStore((s) => s.setActiveTab);
+  const addHistoryEntry = useHistoryStore((s) => s.addEntry);
+  const { save: saveEntry, unsave: unsaveEntry, isSaved } = useSavedStore();
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const responseFade = useRef(new Animated.Value(0)).current;
   const stageTransition = useRef(new Animated.Value(0)).current;
   const ambientDriftA = useRef(new Animated.Value(0)).current;
   const ambientDriftB = useRef(new Animated.Value(0)).current;
@@ -700,6 +1056,119 @@ export default function App() {
     setVoiceError("Audio is taking too long. Please try again.");
   };
 
+  const handleTypeInsteadSubmit = async (text: string) => {
+    setShowCantHear(false);
+    setIsUploadingVoice(true);
+    setProcessingTranscript(text);
+    setVoiceError(null);
+    try {
+      const formData = new FormData();
+      formData.append("text", text);
+      formData.append("level", "beginner");
+      formData.append("scenario", selectedScenario?.id ?? "general");
+      const sourceLang = preference === "chinese" ? "zh" : "en";
+      const targetLang = preference === "chinese" ? "en" : "zh";
+      formData.append("source_lang", sourceLang);
+      formData.append("target_lang", targetLang);
+      formData.append("voice", selectedVoice);
+
+      logApiBaseUrl("Text query");
+      const { response } = await apiFetchWithTimeout(
+        "/v1/speech/turn",
+        { method: "POST", body: formData },
+        90_000,
+        1
+      );
+      const raw = await response.text();
+      if (!response.ok) throw new Error(`Text query failed ${response.status}: ${raw}`);
+
+      const data = JSON.parse(raw) as SpeechTurnResponse;
+      setVoiceTurn(data);
+      addHistoryEntry({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: Date.now(),
+        transcript: data.transcript || text,
+        chinese: data.chinese,
+        pinyin: data.pinyin,
+        english: data.assistant_text,
+        notes: data.notes ?? [],
+        audioUrl: data.audio_url ?? null,
+      });
+      setVoiceHistory((previous) => [
+        ...previous.slice(-2),
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          userTranscript: text,
+          tutorChinese: data.chinese,
+          tutorPinyin: data.pinyin,
+          tutorEnglish: data.assistant_text,
+        },
+      ]);
+      setShowVoiceComplete(true);
+      if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
+      completeTimeoutRef.current = setTimeout(() => {
+        setShowVoiceComplete(false);
+        completeTimeoutRef.current = null;
+      }, 8000);
+      const audioPayload = data.audio ?? {
+        format: (data.audio_mime?.includes("mpeg") ? "mp3" : "wav") as "mp3" | "wav",
+        url: data.audio_url ?? undefined,
+        base64: data.audio_base64 ?? undefined,
+      };
+      if (audioPayload.url || audioPayload.base64) {
+        try {
+          await playVoiceAudio(audioPayload, data.audio_mime);
+        } catch (playbackError) {
+          console.error("Playback error:", playbackError);
+          setIsPlayingPronunciation(false);
+          setVoiceError("Audio playback failed. Please check your volume and try again.");
+        }
+      } else if (data.audio_pending && data.audio_job_id) {
+        await pollForAudioJob(data.audio_job_id);
+      } else {
+        setVoiceError(data.tts_error ?? "Audio unavailable. Please try again.");
+      }
+    } catch (err) {
+      console.error("Type-instead error:", err);
+      setVoiceError("Translation failed. Please try again.");
+    } finally {
+      setIsUploadingVoice(false);
+    }
+  };
+
+  const handleReplayAudio = async (slow: boolean) => {
+    if (isPlayingPronunciation) return;
+    if (!soundRef.current) {
+      if (!voiceTurn) return;
+      const audioPayload = voiceTurn.audio ?? {
+        format: (voiceTurn.audio_mime?.includes("mpeg") ? "mp3" : "wav") as "mp3" | "wav",
+        url: voiceTurn.audio_url ?? undefined,
+        base64: voiceTurn.audio_base64 ?? undefined,
+      };
+      if (audioPayload.url || audioPayload.base64) {
+        try {
+          await playVoiceAudio(audioPayload, voiceTurn.audio_mime ?? undefined);
+        } catch (e) {
+          console.error("Replay error:", e);
+        }
+      }
+      return;
+    }
+    try {
+      setIsPlayingPronunciation(true);
+      await soundRef.current.setPositionAsync(0);
+      if (slow) {
+        await soundRef.current.setRateAsync(0.65, true);
+      } else {
+        await soundRef.current.setRateAsync(1.0, false);
+      }
+      await soundRef.current.playAsync();
+    } catch (e) {
+      console.error("Replay error:", e);
+      setIsPlayingPronunciation(false);
+    }
+  };
+
   const startRecording = async () => {
     if (isRecording || isUploadingVoice) {
       return;
@@ -716,6 +1185,7 @@ export default function App() {
       completeTimeoutRef.current = null;
     }
     setShowVoiceComplete(false);
+    setShowCantHear(false);
     setVoiceError(null);
     if (soundRef.current) {
       await soundRef.current.stopAsync();
@@ -728,11 +1198,18 @@ export default function App() {
       playsInSilentModeIOS: true,
     });
     const recording = new Audio.Recording();
-    await recording.prepareToRecordAsync(
-      Audio.RecordingOptionsPresets.HIGH_QUALITY
-    );
+    recording.setOnRecordingStatusUpdate((status) => {
+      if (status.metering != null) setMeteringLevel(status.metering);
+    });
+    await recording.prepareToRecordAsync({
+      ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+      isMeteringEnabled: true,
+    });
     await recording.startAsync();
     recordingRef.current = recording;
+    setProcessingTranscript("");
+    setLiveTranscript("");
+    setMeteringLevel(-160);
     setIsRecording(true);
   };
 
@@ -746,6 +1223,9 @@ export default function App() {
     setShowVoiceComplete(false);
     setIsPlayingPronunciation(false);
     setVoiceError(null);
+    setProcessingTranscript(liveTranscript);
+    setLiveTranscript("");
+    setMeteringLevel(-160);
     try {
       await recording.stopAndUnloadAsync();
       const status = await recording.getStatusAsync();
@@ -799,7 +1279,27 @@ export default function App() {
 
       const data = JSON.parse(raw) as SpeechTurnResponse;
       console.log("Voice Response Payload:", data);
+
+      // Surface the can't-hear card instead of an error toast for empty/uncertain STT.
+      const isEmpty = !data.transcript || data.transcript.trim().length < 2;
+      const isLowConfidence =
+        typeof data.transcript_confidence === "number" && data.transcript_confidence < 0.4;
+      if (isEmpty || isLowConfidence) {
+        setShowCantHear(true);
+        return; // finally still runs → isUploadingVoice → false
+      }
+
       setVoiceTurn(data);
+      addHistoryEntry({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: Date.now(),
+        transcript: data.transcript,
+        chinese: data.chinese,
+        pinyin: data.pinyin,
+        english: data.assistant_text,
+        notes: data.notes ?? [],
+        audioUrl: data.audio_url ?? null,
+      });
       setVoiceHistory((previous) => [
         ...previous.slice(-2),
         {
@@ -887,6 +1387,20 @@ export default function App() {
       useNativeDriver: true,
     }).start();
   }, [stageTransition, voiceStageState]);
+
+  useEffect(() => {
+    if (voiceTurn) {
+      responseFade.setValue(0);
+      Animated.timing(responseFade, {
+        toValue: 1,
+        duration: 380,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }).start();
+    } else {
+      responseFade.setValue(0);
+    }
+  }, [voiceTurn, responseFade]);
 
   useEffect(() => {
     return () => {
@@ -1067,44 +1581,58 @@ export default function App() {
           <View
             style={[StyleSheet.absoluteFillObject, { backgroundColor: activeTheme.headerSurface }]}
           />
+          {/* Title row */}
           <View style={styles.headerTitleRow}>
             <Text
-              style={[styles.title, { color: activeTheme.titleText }]}
+              style={[
+                styles.headerWordmark,
+                fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+              ]}
               onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
             >
-              {preference === "chinese" ? "英语导师" : "Chinese Tutor"}
+              Tutor
             </Text>
             <View style={styles.headerRight}>
-              <View style={styles.langToggle}>
-                <Pressable
-                  style={[
-                    styles.langPill,
-                    { borderColor: activeTheme.surfaceBorder },
-                    preference === "english" && styles.langPillActive,
-                    preference === "english" && { borderColor: activeTheme.messageAccentText },
-                  ]}
-                  onPress={() => void handleSwitchLanguage("english")}
-                >
-                  <Text style={[styles.langPillText, { color: activeTheme.subtitleText }, preference === "english" && styles.langPillTextActive, preference === "english" && { color: activeTheme.titleText }]}>EN</Text>
+              {/* EN → 中 pill */}
+              <View style={styles.langPillContainer}>
+                <Pressable onPress={() => void handleSwitchLanguage("english")}>
+                  <Text
+                    style={[
+                      styles.langPillSide,
+                      preference === "english" && styles.langPillSideActive,
+                    ]}
+                  >
+                    EN
+                  </Text>
                 </Pressable>
-                <Pressable
-                  style={[
-                    styles.langPill,
-                    { borderColor: activeTheme.surfaceBorder },
-                    preference === "chinese" && styles.langPillActive,
-                    preference === "chinese" && { borderColor: activeTheme.messageAccentText },
-                  ]}
-                  onPress={() => void handleSwitchLanguage("chinese")}
-                >
-                  <Text style={[styles.langPillText, { color: activeTheme.subtitleText }, preference === "chinese" && styles.langPillTextActive, preference === "chinese" && { color: activeTheme.titleText }]}>中</Text>
+                <Text style={styles.langPillSeparator}>→</Text>
+                <Pressable onPress={() => void handleSwitchLanguage("chinese")}>
+                  <Text
+                    style={[
+                      styles.langPillSide,
+                      preference === "chinese" && styles.langPillSideActive,
+                    ]}
+                  >
+                    中
+                  </Text>
                 </Pressable>
               </View>
-              {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? null : (
-                <Pressable onPress={handleLogout}>
-                  <Text style={styles.logoutText}>Logout</Text>
-                </Pressable>
-              )}
+              {/* Hamburger menu */}
+              <Pressable onPress={() => setShowDrawer(true)} style={styles.menuButton}>
+                <Text style={styles.menuIcon}>≡</Text>
+              </Pressable>
             </View>
+          </View>
+          {/* Tab bar */}
+          <View style={styles.tabBar}>
+            {(["SPEAK", "HISTORY", "SAVED"] as const).map((tab) => (
+              <Pressable key={tab} onPress={() => setActiveTab(tab)} style={styles.tabItem}>
+                <Text style={[styles.tabLabel, activeTab === tab && styles.tabLabelActive]}>
+                  {tab}
+                </Text>
+                {activeTab === tab && <View style={styles.tabUnderline} />}
+              </Pressable>
+            ))}
           </View>
         </Animated.View>
 
@@ -1118,7 +1646,19 @@ export default function App() {
           </View>
         ) : null}
 
-        <View style={styles.centerStage}>
+        {activeTab === "HISTORY" ? (
+          <HistoryScreen fontsLoaded={!!fontsLoaded} />
+        ) : activeTab === "SAVED" ? (
+          <SavedScreen fontsLoaded={!!fontsLoaded} />
+        ) : null}
+        {activeTab === "SPEAK" && showCantHear ? (
+          <CantHearCard
+            fontsLoaded={!!fontsLoaded}
+            onTryAgain={() => setShowCantHear(false)}
+            onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
+          />
+        ) : null}
+        {activeTab === "SPEAK" && !showCantHear ? <View style={styles.centerStage}>
           <View style={styles.practiceScenarioWrap}>
             <Pressable
               style={[
@@ -1201,44 +1741,96 @@ export default function App() {
             </View>
           ) : null}
 
-          {voiceTurn ? (
-            <View
-              style={[
-                styles.voiceResultCenter,
-                {
-                  backgroundColor: activeTheme.surfaceTint,
-                  borderColor: activeTheme.surfaceBorder,
-                },
-              ]}
-            >
-              <Text style={[styles.voiceResultChinese, { color: activeTheme.titleText }]}>
-                {voiceTurn.chinese}
-              </Text>
-              <Text style={[styles.voiceResultPinyin, { color: activeTheme.messageAccentText }]}>
-                {voiceTurn.pinyin}
-              </Text>
-              <Text style={[styles.voiceResultEnglish, { color: activeTheme.subtitleText }]}>
-                {voiceTurn.transcript}
-              </Text>
-              {voiceTurn.notes?.length ? (
-                <Text style={[styles.voiceResultNote, { color: activeTheme.voiceSupportText }]}>
-                  {voiceTurn.notes[0]}
-                </Text>
-              ) : null}
-            </View>
+          {isRecording ? (
+            <ListeningView
+              liveTranscript={liveTranscript}
+              meteringLevel={meteringLevel}
+              fontsLoaded={!!fontsLoaded}
+            />
+          ) : isUploadingVoice ? (
+            <ProcessingView
+              processingTranscript={processingTranscript}
+              fontsLoaded={!!fontsLoaded}
+            />
+          ) : voiceTurn ? (
+            <Animated.View style={{ opacity: responseFade, alignSelf: "stretch" }}>
+              <ResponseView
+                turn={voiceTurn}
+                fontsLoaded={!!fontsLoaded}
+                onPlayAudio={(slow) => { void handleReplayAudio(slow); }}
+                isPlaying={isPlayingPronunciation}
+              />
+            </Animated.View>
           ) : (
-            <View style={styles.dailyPhrase}>
-              <Text style={[styles.dailyPhraseChinese, { color: activeTheme.titleText }]}>
+            <View style={styles.dailyPhraseCard}>
+              {/* Eyebrow */}
+              <Text style={styles.phraseEyebrow}>
+                № {getDailyPhraseIndex()} · PHRASE OF THE DAY
+              </Text>
+
+              {/* Hero hanzi */}
+              <Text
+                style={[
+                  styles.phraseHanzi,
+                  fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+                ]}
+              >
                 {getDailyPhrase().chinese}
               </Text>
-              <Text style={[styles.dailyPhrasePinyin, { color: activeTheme.messageAccentText }]}>
-                {getDailyPhrase().pinyin}
+
+              {/* Pinyin — tone colors to be applied per-syllable in prompt #6 */}
+              <Text style={styles.phrasePinyin}>{getDailyPhrase().pinyin}</Text>
+
+              {/* English gloss */}
+              <Text
+                style={[
+                  styles.phraseGloss,
+                  fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+                ]}
+              >
+                "{getDailyPhrase().english}"
               </Text>
-              <Text style={[styles.dailyPhraseEnglish, { color: activeTheme.subtitleText }]}>
-                {getDailyPhrase().english}
-              </Text>
+
+              {/* Divider */}
+              <View style={styles.phraseDivider} />
+
+              {/* Suggestions */}
+              <Text style={styles.tryAskingLabel}>Try asking</Text>
+              {SUGGESTIONS.map((s) => (
+                <Pressable
+                  key={s}
+                  style={styles.suggestionRow}
+                  onPress={() => setPendingQuery(pendingQuery === s ? null : s)}
+                >
+                  <Text
+                    style={[
+                      styles.suggestionText,
+                      fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+                      pendingQuery === s && styles.suggestionTextActive,
+                    ]}
+                  >
+                    "{s}"
+                  </Text>
+                  <Text style={styles.suggestionChevron}>›</Text>
+                </Pressable>
+              ))}
             </View>
           )}
+
+          {/* Pending query prompt — shown when a suggestion is tapped */}
+          {!isRecording && !voiceTurn && pendingQuery ? (
+            <View style={styles.pendingQueryWrap}>
+              <Text style={styles.pendingQueryLabel}>SAY SOMETHING LIKE</Text>
+              <Text
+                style={[
+                  styles.pendingQueryText,
+                  fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+                ]}
+              >
+                "{pendingQuery}"
+              </Text>
+            </View>
+          ) : null}
 
           <Animated.View
             style={[
@@ -1328,8 +1920,31 @@ export default function App() {
               ))}
             </View>
           ) : null}
-        </View>
+        </View> : null}
       </KeyboardAvoidingView>
+      <Modal
+        visible={showDrawer}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDrawer(false)}
+      >
+        <Pressable style={styles.drawerOverlay} onPress={() => setShowDrawer(false)}>
+          <View style={styles.drawerPanel}>
+            {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? (
+              <Text style={styles.drawerEmpty}>Settings coming soon</Text>
+            ) : (
+              <Pressable
+                onPress={() => {
+                  setShowDrawer(false);
+                  void handleLogout();
+                }}
+              >
+                <Text style={styles.drawerItem}>Logout</Text>
+              </Pressable>
+            )}
+          </View>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1467,64 +2082,333 @@ const styles = StyleSheet.create({
   },
   headerHero: {
     paddingHorizontal: 20,
-    paddingTop: 22,
-    paddingBottom: 16,
-    borderBottomWidth: 1.5,
-    borderBottomColor: "rgba(245, 208, 169, 0.7)",
+    paddingTop: 16,
+    paddingBottom: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(0,0,0,0.07)",
   },
   headerTitleRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  title: {
-    fontSize: 26,
-    lineHeight: 30,
-    fontWeight: "800",
-    letterSpacing: -0.6,
-    color: "#6B2C12",
-  },
-  logoutText: {
-    fontSize: 12,
-    color: "#B91C1C",
-    fontWeight: "600",
+  headerWordmark: {
+    fontSize: 22,
+    fontWeight: "500",
+    fontStyle: "italic",
+    color: "#1A1009",
+    letterSpacing: 0.1,
   },
   headerRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
   },
-  langToggle: {
+  langPillContainer: {
     flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.05)",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     gap: 4,
   },
-  langPill: {
-    paddingHorizontal: 13,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1.5,
-    borderColor: "rgba(107, 44, 18, 0.2)",
-    backgroundColor: "rgba(255,255,255,0.2)",
+  langPillSide: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 11,
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+    color: "#8F8578",
   },
-  langPillActive: {
-    backgroundColor: "rgba(107, 44, 18, 0.14)",
-    borderColor: "rgba(107, 44, 18, 0.6)",
+  langPillSideActive: {
+    color: "#1D4D3B",
   },
-  langPillText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "rgba(107, 44, 18, 0.38)",
-    letterSpacing: 0.3,
+  langPillSeparator: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 11,
+    color: "#8F8578",
   },
-  langPillTextActive: {
-    color: "#6B2C12",
+  menuButton: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
   },
-  centerStage: {
+  menuIcon: {
+    fontSize: 22,
+    color: "#1A1009",
+    lineHeight: 26,
+  },
+  tabBar: {
+    flexDirection: "row",
+    marginTop: 14,
+    gap: 20,
+  },
+  tabItem: {
+    paddingBottom: 8,
+    position: "relative",
+  },
+  tabLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
+  },
+  tabLabelActive: {
+    color: "#1D4D3B",
+  },
+  tabUnderline: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 2,
+    backgroundColor: "#1D4D3B",
+    borderRadius: 1,
+  },
+  tabPlaceholder: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 32,
-    paddingBottom: 40,
+  },
+  tabPlaceholderText: {
+    fontSize: 16,
+    color: "#8F8578",
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    letterSpacing: 1.2,
+    textTransform: "uppercase",
+  },
+  logoutText: {
+    fontSize: 12,
+    color: "#B91C1C",
+    fontWeight: "600",
+  },
+  drawerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.28)",
+    justifyContent: "flex-start",
+    alignItems: "flex-end",
+  },
+  drawerPanel: {
+    backgroundColor: "#FDFAF6",
+    marginTop: 88,
+    marginRight: 16,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minWidth: 180,
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 8,
+  },
+  drawerItem: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#B91C1C",
+    paddingVertical: 8,
+  },
+  drawerEmpty: {
+    fontSize: 13,
+    color: "#8F8578",
+    paddingVertical: 8,
+  },
+  centerStage: {
+    flex: 1,
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 28,
+    paddingTop: 20,
+    paddingBottom: 32,
+  },
+  // ── Processing / translating ──────────────────────────────────────────────
+  processingWrap: {
+    alignSelf: "stretch",
+  },
+  youAskedBlock: {
+    marginBottom: 20,
+  },
+  youAskedLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
+    marginBottom: 6,
+  },
+  youAskedText: {
+    fontSize: 19,
+    fontStyle: "italic",
+    lineHeight: 26,
+    color: "#544B40",
+  },
+  translatingEyebrow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    marginBottom: 20,
+  },
+  translatingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#1D4D3B",
+  },
+  translatingLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#1D4D3B",
+  },
+  skeletonGroup: {
+    gap: 10,
+  },
+  skeletonBar: {
+    alignSelf: "stretch",
+    backgroundColor: "rgba(21,17,13,0.08)",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  shimmerHighlight: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 130,
+    backgroundColor: "#E3EADD",
+    opacity: 0.72,
+  },
+  // ── Listening ─────────────────────────────────────────────────────────────
+  listeningWrap: {
+    alignSelf: "stretch",
+  },
+  recordingEyebrow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 18,
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#1D4D3B",
+  },
+  recordingLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#1D4D3B",
+  },
+  transcriptBlock: {
+    marginBottom: 28,
+  },
+  transcriptText: {
+    fontSize: 28,
+    fontStyle: "italic",
+    lineHeight: 36,
+    color: "#15110D",
+  },
+  transcriptCaret: {
+    width: 2,
+    height: 26,
+    backgroundColor: "#1D4D3B",
+    borderRadius: 1,
+    marginTop: 6,
+  },
+  waveform: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    height: 44,
+    gap: 3,
+  },
+  waveBar: {
+    width: 3,
+    backgroundColor: "#15110D",
+    borderRadius: 1.5,
+  },
+  dailyPhraseCard: {
+    alignSelf: "stretch",
+  },
+  phraseEyebrow: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
+    marginBottom: 14,
+  },
+  phraseHanzi: {
+    fontSize: 56,
+    lineHeight: 56,
+    letterSpacing: 1,
+    color: "#15110D",
+    marginBottom: 10,
+  },
+  phrasePinyin: {
+    fontSize: 15,
+    letterSpacing: 0.4,
+    color: "#C84B31",
+    marginBottom: 8,
+  },
+  phraseGloss: {
+    fontSize: 17,
+    fontStyle: "italic",
+    color: "#544B40",
+    marginBottom: 22,
+  },
+  phraseDivider: {
+    height: 1,
+    backgroundColor: "rgba(21,17,13,0.13)",
+    marginBottom: 16,
+  },
+  tryAskingLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
+    marginBottom: 6,
+  },
+  suggestionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 9,
+  },
+  suggestionText: {
+    fontSize: 16,
+    fontStyle: "italic",
+    color: "#15110D",
+    flex: 1,
+  },
+  suggestionTextActive: {
+    color: "#1D4D3B",
+  },
+  suggestionChevron: {
+    fontSize: 18,
+    color: "#8F8578",
+    marginLeft: 8,
+  },
+  pendingQueryWrap: {
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  pendingQueryLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 9,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
+    marginBottom: 4,
+  },
+  pendingQueryText: {
+    fontSize: 15,
+    fontStyle: "italic",
+    color: "#1D4D3B",
+    textAlign: "center",
   },
   dailyPhrase: {
     alignItems: "center",
@@ -1681,5 +2565,149 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontWeight: "600",
     fontSize: 14,
+  },
+  // ── Response view ────────────────────────────────────────────────────────────
+  responseScroll: {
+    alignSelf: "stretch",
+    maxHeight: 400,
+  },
+  responseScrollContent: {
+    paddingBottom: 8,
+  },
+  resEyebrow: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: TOKENS.inkFaint,
+    marginBottom: 8,
+  },
+  resYouAskedBlock: {
+    marginBottom: 20,
+  },
+  resYouAskedText: {
+    fontSize: 17,
+    fontStyle: "italic",
+    lineHeight: 24,
+    color: TOKENS.inkSoft,
+  },
+  resHeroHanzi: {
+    fontSize: 54,
+    lineHeight: 62,
+    letterSpacing: 3,
+    fontWeight: "500",
+    color: TOKENS.ink,
+    marginBottom: 10,
+  },
+  resPinyinRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 4,
+    marginBottom: 10,
+  },
+  resPinyinSyllable: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  resGloss: {
+    fontSize: 17,
+    fontStyle: "italic",
+    color: TOKENS.inkSoft,
+    marginBottom: 18,
+    lineHeight: 24,
+  },
+  resActionRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 20,
+  },
+  resPlayButton: {
+    flex: 2,
+    backgroundColor: TOKENS.ink,
+    borderRadius: 2,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  resPlayButtonActive: {
+    backgroundColor: "#3B3530",
+  },
+  resPlayButtonText: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 11,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#FFFFFF",
+  },
+  resSlowButton: {
+    flex: 1,
+    borderRadius: 2,
+    borderWidth: 1.5,
+    borderColor: TOKENS.ink,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  resSlowButtonText: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 11,
+    letterSpacing: 1.2,
+    color: TOKENS.ink,
+  },
+  resRule: {
+    height: 1,
+    backgroundColor: TOKENS.rule,
+    marginVertical: 20,
+  },
+  resMorphemeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+  },
+  resMorphemeHanzi: {
+    fontSize: 24,
+    fontWeight: "500",
+    color: TOKENS.ink,
+    minWidth: 28,
+  },
+  resMorphemePinyin: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  resMorphemeRule: {
+    height: 1,
+    backgroundColor: "rgba(21,17,13,0.08)",
+  },
+  resPronRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 10,
+    marginBottom: 8,
+  },
+  resPronScore: {
+    fontSize: 48,
+    fontWeight: "500",
+    color: TOKENS.accent,
+    lineHeight: 52,
+  },
+  resPronOutOf: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 14,
+    color: TOKENS.inkFaint,
+    alignSelf: "flex-end",
+    marginBottom: 6,
+  },
+  resPronCompliment: {
+    flex: 1,
+    fontSize: 15,
+    fontStyle: "italic",
+    color: TOKENS.inkSoft,
+    lineHeight: 22,
+    alignSelf: "center",
+  },
+  resPronNudge: {
+    fontSize: 13,
+    color: TOKENS.inkFaint,
+    lineHeight: 18,
   },
 });

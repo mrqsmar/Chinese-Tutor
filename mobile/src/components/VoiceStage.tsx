@@ -2,11 +2,30 @@ import { useEffect, useRef, useState } from "react";
 import {
   Animated,
   Easing,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+
+const MicIcon = ({ color = "white" }: { color?: string }) => (
+  <View style={{ alignItems: "center" }}>
+    <View style={{ width: 11, height: 18, borderRadius: 5.5, backgroundColor: color }} />
+    <View style={{
+      width: 20,
+      height: 9,
+      borderLeftWidth: 2,
+      borderRightWidth: 2,
+      borderBottomWidth: 2,
+      borderColor: color,
+      borderBottomLeftRadius: 10,
+      borderBottomRightRadius: 10,
+      marginTop: -2,
+    }} />
+    <View style={{ width: 11, height: 2, backgroundColor: color, marginTop: 2 }} />
+  </View>
+);
 
 export type VoiceStageState =
   | "idle"
@@ -55,7 +74,7 @@ const STATE_LABEL_ZH: Record<VoiceStageState, string> = {
   complete:   "完成",
 };
 
-const BUTTON_SIZE = 120;
+const BUTTON_SIZE = 76;
 
 const VoiceStage = ({
   state,
@@ -88,16 +107,27 @@ const VoiceStage = ({
   useEffect(() => {
     if (isListening) {
       setHasEnoughRecording(false);
-      Animated.timing(ringAnim, {
-        toValue: 1,
-        duration: 2000,
-        easing: Easing.out(Easing.cubic),
-        useNativeDriver: true,
-      }).start();
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(ringAnim, {
+            toValue: 1,
+            duration: 1600,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(ringAnim, {
+            toValue: 0,
+            duration: 0,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      loop.start();
       enoughTimerRef.current = setTimeout(() => {
         setHasEnoughRecording(true);
       }, 2000);
       return () => {
+        loop.stop();
         if (enoughTimerRef.current) {
           clearTimeout(enoughTimerRef.current);
           enoughTimerRef.current = null;
@@ -142,11 +172,11 @@ const VoiceStage = ({
 
   const ringScale = ringAnim.interpolate({
     inputRange: [0, 1],
-    outputRange: [1, 1.9],
+    outputRange: [1, 2.5],
   });
   const ringOpacity = ringAnim.interpolate({
-    inputRange: [0, 0.8, 1],
-    outputRange: [0.55, 0.45, 0.35],
+    inputRange: [0, 0.5, 1],
+    outputRange: [0.85, 0.35, 0],
   });
 
   return (
@@ -154,9 +184,8 @@ const VoiceStage = ({
       {isListening ? (
         <Animated.View
           style={[
-            styles.ring,
+            styles.pulseRing,
             {
-              backgroundColor: hasEnoughRecording ? "#22C55E" : ring,
               transform: [{ scale: ringScale }],
               opacity: ringOpacity,
             },
@@ -167,14 +196,20 @@ const VoiceStage = ({
         <Pressable
           style={[
             styles.button,
-            { backgroundColor: isListening ? bgPress : bg, borderColor: border },
+            state === "idle" && styles.buttonIdle,
+            isListening && styles.buttonListening,
+            !state.match(/^idle|listening$/) && { backgroundColor: bg, borderColor: border },
             disabled && styles.buttonDisabled,
           ]}
           onPressIn={onPressIn}
           onPressOut={onPressOut}
           disabled={disabled}
         >
-          <Text style={styles.icon}>{STATE_ICON[state]}</Text>
+          {state === "idle" ? (
+            <MicIcon color="white" />
+          ) : (
+            <Text style={styles.icon}>{STATE_ICON[state]}</Text>
+          )}
         </Pressable>
       </Animated.View>
       {isProcessing ? (
@@ -183,6 +218,8 @@ const VoiceStage = ({
         >
           Thinking...
         </Animated.Text>
+      ) : state === "idle" ? (
+        <Text style={styles.idleLabel}>Hold · Speak · Release</Text>
       ) : (
         <Text style={[styles.label, { color: bg }]}>{STATE_LABEL[state]}</Text>
       )}
@@ -195,11 +232,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  ring: {
+  pulseRing: {
     position: "absolute",
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,
     borderRadius: BUTTON_SIZE / 2,
+    borderWidth: 1.5,
+    borderColor: "#1D4D3B",
+    backgroundColor: "transparent",
   },
   button: {
     width: BUTTON_SIZE,
@@ -217,14 +257,33 @@ const styles = StyleSheet.create({
   buttonDisabled: {
     opacity: 0.4,
   },
+  buttonIdle: {
+    backgroundColor: "#15110D",
+    borderWidth: 0,
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  buttonListening: {
+    backgroundColor: "#1D4D3B",
+    borderWidth: 0,
+  },
   icon: {
-    fontSize: 36,
+    fontSize: 28,
   },
   label: {
     marginTop: 14,
     fontSize: 15,
     fontWeight: "600",
     letterSpacing: 0.2,
+  },
+  idleLabel: {
+    marginTop: 12,
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
   },
   processingLabel: {
     minWidth: 100,
