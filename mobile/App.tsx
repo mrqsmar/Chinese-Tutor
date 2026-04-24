@@ -439,9 +439,9 @@ const ShimmerSkeleton = ({
 
 // ─── Processing / translating screen ─────────────────────────────────────────
 
-type ProcessingViewProps = { processingTranscript: string; fontsLoaded: boolean };
+type ProcessingViewProps = { processingTranscript: string; fontsLoaded: boolean; onCancel: () => void };
 
-const ProcessingView = ({ processingTranscript, fontsLoaded }: ProcessingViewProps) => {
+const ProcessingView = ({ processingTranscript, fontsLoaded, onCancel }: ProcessingViewProps) => {
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const dot1 = useRef(new Animated.Value(0)).current;
   const dot2 = useRef(new Animated.Value(0)).current;
@@ -508,6 +508,10 @@ const ProcessingView = ({ processingTranscript, fontsLoaded }: ProcessingViewPro
         <ShimmerSkeleton height={14} shimmerAnim={shimmerAnim} />
         <ShimmerSkeleton height={14} shimmerAnim={shimmerAnim} />
       </View>
+
+      <Pressable onPress={onCancel} style={styles.cancelBtn} hitSlop={12}>
+        <Text style={styles.cancelBtnText}>✕  CANCEL</Text>
+      </Pressable>
     </View>
   );
 };
@@ -762,6 +766,8 @@ export default function App() {
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceFetchControllerRef = useRef<AbortController | null>(null);
+  const userCancelledRef = useRef(false);
   const responseFade = useRef(new Animated.Value(0)).current;
   const stageTransition = useRef(new Animated.Value(0)).current;
   const ambientDriftA = useRef(new Animated.Value(0)).current;
@@ -1073,12 +1079,16 @@ export default function App() {
       formData.append("voice", selectedVoice);
 
       logApiBaseUrl("Text query");
+      const fetchController = new AbortController();
+      voiceFetchControllerRef.current = fetchController;
       const { response } = await apiFetchWithTimeout(
         "/v1/speech/turn",
         { method: "POST", body: formData },
         90_000,
-        1
+        1,
+        fetchController.signal
       );
+      voiceFetchControllerRef.current = null;
       const raw = await response.text();
       if (!response.ok) throw new Error(`Text query failed ${response.status}: ${raw}`);
 
@@ -1130,8 +1140,14 @@ export default function App() {
       }
     } catch (err) {
       console.error("Type-instead error:", err);
+      if (userCancelledRef.current) {
+        setProcessingTranscript("");
+        return;
+      }
       setVoiceError("Translation failed. Please try again.");
     } finally {
+      userCancelledRef.current = false;
+      voiceFetchControllerRef.current = null;
       setIsUploadingVoice(false);
     }
   };
@@ -1167,6 +1183,11 @@ export default function App() {
       console.error("Replay error:", e);
       setIsPlayingPronunciation(false);
     }
+  };
+
+  const handleCancelTranslation = () => {
+    userCancelledRef.current = true;
+    voiceFetchControllerRef.current?.abort();
   };
 
   const startRecording = async () => {
@@ -1257,6 +1278,8 @@ export default function App() {
 
       logApiBaseUrl("Voice upload");
       const startedAt = Date.now();
+      const fetchController = new AbortController();
+      voiceFetchControllerRef.current = fetchController;
       const { response } = await apiFetchWithTimeout(
         "/v1/speech/turn",
         {
@@ -1264,8 +1287,10 @@ export default function App() {
           body: formData,
         },
         90_000,
-        1
+        1,
+        fetchController.signal
       );
+      voiceFetchControllerRef.current = null;
 
       const durationMs = Date.now() - startedAt;
       const raw = await response.text();
@@ -1340,6 +1365,10 @@ export default function App() {
       }
     } catch (voiceUploadError) {
       console.error("Voice upload error:", voiceUploadError);
+      if (userCancelledRef.current) {
+        setProcessingTranscript("");
+        return;
+      }
       const errMsg =
         voiceUploadError instanceof Error ? voiceUploadError.message : "";
       const isTimeout =
@@ -1355,6 +1384,8 @@ export default function App() {
             : "Voice request failed. Please try again."
       );
     } finally {
+      userCancelledRef.current = false;
+      voiceFetchControllerRef.current = null;
       setIsUploadingVoice(false);
     }
   };
@@ -1751,6 +1782,7 @@ export default function App() {
             <ProcessingView
               processingTranscript={processingTranscript}
               fontsLoaded={!!fontsLoaded}
+              onCancel={handleCancelTranslation}
             />
           ) : voiceTurn ? (
             <Animated.View style={{ opacity: responseFade, alignSelf: "stretch" }}>
@@ -2263,6 +2295,18 @@ const styles = StyleSheet.create({
   },
   skeletonGroup: {
     gap: 10,
+  },
+  cancelBtn: {
+    alignSelf: "center",
+    marginTop: 32,
+    padding: 12,
+  },
+  cancelBtnText: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 11,
+    letterSpacing: 1.8,
+    textTransform: "uppercase",
+    color: "#8F8578",
   },
   skeletonBar: {
     alignSelf: "stretch",
