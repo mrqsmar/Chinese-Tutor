@@ -1,9 +1,19 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Audio } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
-import { useFonts, Fraunces_500Medium_Italic } from "@expo-google-fonts/fraunces";
-import { NotoSerifSC_500Medium } from "@expo-google-fonts/noto-serif-sc";
-import { SpaceGrotesk_600SemiBold } from "@expo-google-fonts/space-grotesk";
+import {
+  useFonts,
+  Fraunces_400Regular,
+  Fraunces_400Regular_Italic,
+  Fraunces_500Medium,
+  Fraunces_500Medium_Italic,
+} from "@expo-google-fonts/fraunces";
+import { NotoSerifSC_400Regular, NotoSerifSC_500Medium } from "@expo-google-fonts/noto-serif-sc";
+import {
+  SpaceGrotesk_500Medium,
+  SpaceGrotesk_600SemiBold,
+  SpaceGrotesk_700Bold,
+} from "@expo-google-fonts/space-grotesk";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -21,6 +31,7 @@ import {
 } from "react-native";
 
 import { useUIStore } from "./src/store/uiStore";
+import { TOKENS, getToneColor, FONT_FAMILIES } from "./src/styles/tokens";
 
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
@@ -585,15 +596,7 @@ const ListeningView = ({ liveTranscript, meteringLevel, fontsLoaded }: Listening
 
 // ─── Tone utilities ──────────────────────────────────────────────────────────
 
-const TONE_COLORS: Record<number, string> = {
-  1: "#2A7BE4",
-  2: "#2E9E5B",
-  3: "#C57B1A",
-  4: "#C84B31",
-  5: "#8F8578",
-};
-
-const detectTone = (syllable: string): number => {
+const detectTone = (syllable: string): 1 | 2 | 3 | 4 | 5 => {
   if (/[āēīōūǖĀĒĪŌŪǕ]/.test(syllable)) return 1;
   if (/[áéíóúǘÁÉÍÓÚǗ]/.test(syllable)) return 2;
   if (/[ǎěǐǒǔǚǍĚǏǑǓǙ]/.test(syllable)) return 3;
@@ -601,7 +604,8 @@ const detectTone = (syllable: string): number => {
   return 5;
 };
 
-const toneColor = (syllable: string) => TONE_COLORS[detectTone(syllable)];
+// Convenience: detect tone from a diacritic-marked syllable string then look up the colour.
+const toneColor = (syllable: string) => getToneColor(detectTone(syllable));
 
 type MorphemeEntry = { hanzi: string; pinyin: string };
 
@@ -621,9 +625,10 @@ type ResponseViewProps = {
 };
 
 const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying }: ResponseViewProps) => {
-  const frauncesItalic = fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {};
-  const notoSerif = fontsLoaded ? { fontFamily: "NotoSerifSC_500Medium" } : {};
-  const spaceGrotesk = fontsLoaded ? { fontFamily: "SpaceGrotesk_600SemiBold" } : {};
+  const frauncesItalic = fontsLoaded ? { fontFamily: FONT_FAMILIES.frauncesMediumItalic } : {};
+  const notoSerif = fontsLoaded ? { fontFamily: FONT_FAMILIES.notoSerifMedium } : {};
+  const spaceGrotesk = fontsLoaded ? { fontFamily: FONT_FAMILIES.spaceGroteskSemiBold } : {};
+  const spaceGroteskBold = fontsLoaded ? { fontFamily: FONT_FAMILIES.spaceGroteskBold } : {};
   const breakdown = buildBreakdown(turn.chinese, turn.pinyin);
 
   return (
@@ -647,7 +652,7 @@ const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying }: ResponseVie
       {/* 3. Tone-colored pinyin row */}
       <View style={styles.resPinyinRow}>
         {turn.pinyin.trim().split(/\s+/).map((syllable, i) => (
-          <Text key={i} style={[styles.resPinyinSyllable, spaceGrotesk, { color: toneColor(syllable) }]}>
+          <Text key={i} style={[styles.resPinyinSyllable, spaceGroteskBold, { color: toneColor(syllable) }]}>
             {syllable}
           </Text>
         ))}
@@ -744,7 +749,17 @@ export default function App() {
   const [liveTranscript, setLiveTranscript] = useState("");
   const [meteringLevel, setMeteringLevel] = useState(-160);
   const [processingTranscript, setProcessingTranscript] = useState("");
-  const [fontsLoaded] = useFonts({ Fraunces_500Medium_Italic, NotoSerifSC_500Medium, SpaceGrotesk_600SemiBold });
+  const [fontsLoaded] = useFonts({
+    Fraunces_400Regular,
+    Fraunces_400Regular_Italic,
+    Fraunces_500Medium,
+    Fraunces_500Medium_Italic,
+    NotoSerifSC_400Regular,
+    NotoSerifSC_500Medium,
+    SpaceGrotesk_500Medium,
+    SpaceGrotesk_600SemiBold,
+    SpaceGrotesk_700Bold,
+  });
   const activeTab = useUIStore((s) => s.activeTab);
   const setActiveTab = useUIStore((s) => s.setActiveTab);
   const recordingRef = useRef<Audio.Recording | null>(null);
@@ -2463,7 +2478,7 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 1.6,
     textTransform: "uppercase",
-    color: "#8F8578",
+    color: TOKENS.inkFaint,
     marginBottom: 8,
   },
   resYouAskedBlock: {
@@ -2473,14 +2488,14 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontStyle: "italic",
     lineHeight: 24,
-    color: "#544B40",
+    color: TOKENS.inkSoft,
   },
   resHeroHanzi: {
     fontSize: 54,
     lineHeight: 62,
     letterSpacing: 3,
     fontWeight: "500",
-    color: "#15110D",
+    color: TOKENS.ink,
     marginBottom: 10,
   },
   resPinyinRow: {
@@ -2496,7 +2511,7 @@ const styles = StyleSheet.create({
   resGloss: {
     fontSize: 17,
     fontStyle: "italic",
-    color: "#544B40",
+    color: TOKENS.inkSoft,
     marginBottom: 18,
     lineHeight: 24,
   },
@@ -2507,7 +2522,7 @@ const styles = StyleSheet.create({
   },
   resPlayButton: {
     flex: 2,
-    backgroundColor: "#15110D",
+    backgroundColor: TOKENS.ink,
     borderRadius: 2,
     paddingVertical: 12,
     alignItems: "center",
@@ -2526,7 +2541,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 2,
     borderWidth: 1.5,
-    borderColor: "#15110D",
+    borderColor: TOKENS.ink,
     paddingVertical: 12,
     alignItems: "center",
   },
@@ -2534,11 +2549,11 @@ const styles = StyleSheet.create({
     fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
     fontSize: 11,
     letterSpacing: 1.2,
-    color: "#15110D",
+    color: TOKENS.ink,
   },
   resRule: {
     height: 1,
-    backgroundColor: "rgba(21,17,13,0.12)",
+    backgroundColor: TOKENS.rule,
     marginVertical: 20,
   },
   resMorphemeRow: {
@@ -2550,7 +2565,7 @@ const styles = StyleSheet.create({
   resMorphemeHanzi: {
     fontSize: 24,
     fontWeight: "500",
-    color: "#15110D",
+    color: TOKENS.ink,
     minWidth: 28,
   },
   resMorphemePinyin: {
@@ -2571,13 +2586,13 @@ const styles = StyleSheet.create({
   resPronScore: {
     fontSize: 48,
     fontWeight: "500",
-    color: "#1D4D3B",
+    color: TOKENS.accent,
     lineHeight: 52,
   },
   resPronOutOf: {
     fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
     fontSize: 14,
-    color: "#8F8578",
+    color: TOKENS.inkFaint,
     alignSelf: "flex-end",
     marginBottom: 6,
   },
@@ -2585,13 +2600,13 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontStyle: "italic",
-    color: "#544B40",
+    color: TOKENS.inkSoft,
     lineHeight: 22,
     alignSelf: "center",
   },
   resPronNudge: {
     fontSize: 13,
-    color: "#8F8578",
+    color: TOKENS.inkFaint,
     lineHeight: 18,
   },
 });
