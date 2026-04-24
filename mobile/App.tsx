@@ -68,12 +68,25 @@ const DAILY_PHRASES = [
   { chinese: "路上小心", pinyin: "lù shàng xiǎo xīn", english: "Be safe on the road" },
 ];
 
+const getDailyPhraseIndex = () => {
+  const startOfYear = new Date(new Date().getFullYear(), 0, 0).getTime();
+  const now = new Date().getTime();
+  const dayOfYear = Math.floor((now - startOfYear) / 86400000);
+  return (dayOfYear % DAILY_PHRASES.length) + 1;
+};
+
 const getDailyPhrase = () => {
   const startOfYear = new Date(new Date().getFullYear(), 0, 0).getTime();
   const now = new Date().getTime();
   const dayOfYear = Math.floor((now - startOfYear) / 86400000);
   return DAILY_PHRASES[dayOfYear % DAILY_PHRASES.length];
 };
+
+const SUGGESTIONS = [
+  "How do I order three siu mai?",
+  "Ask someone out for dinner",
+  "A polite way to decline",
+];
 
 const isTruthy = (value: string | undefined) =>
   ["1", "true", "yes", "on"].includes((value ?? "").toLowerCase());
@@ -409,6 +422,7 @@ export default function App() {
   const [selectedScenario, setSelectedScenario] = useState<PracticeScenario | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
   const [showDrawer, setShowDrawer] = useState(false);
+  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const [fontsLoaded] = useFonts({ Fraunces_500Medium_Italic });
   const activeTab = useUIStore((s) => s.activeTab);
   const setActiveTab = useUIStore((s) => s.setActiveTab);
@@ -1258,18 +1272,75 @@ export default function App() {
               ) : null}
             </View>
           ) : (
-            <View style={styles.dailyPhrase}>
-              <Text style={[styles.dailyPhraseChinese, { color: activeTheme.titleText }]}>
+            <View style={styles.dailyPhraseCard}>
+              {/* Eyebrow */}
+              <Text style={styles.phraseEyebrow}>
+                № {getDailyPhraseIndex()} · PHRASE OF THE DAY
+              </Text>
+
+              {/* Hero hanzi */}
+              <Text
+                style={[
+                  styles.phraseHanzi,
+                  fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+                ]}
+              >
                 {getDailyPhrase().chinese}
               </Text>
-              <Text style={[styles.dailyPhrasePinyin, { color: activeTheme.messageAccentText }]}>
-                {getDailyPhrase().pinyin}
+
+              {/* Pinyin — tone colors to be applied per-syllable in prompt #6 */}
+              <Text style={styles.phrasePinyin}>{getDailyPhrase().pinyin}</Text>
+
+              {/* English gloss */}
+              <Text
+                style={[
+                  styles.phraseGloss,
+                  fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+                ]}
+              >
+                "{getDailyPhrase().english}"
               </Text>
-              <Text style={[styles.dailyPhraseEnglish, { color: activeTheme.subtitleText }]}>
-                {getDailyPhrase().english}
-              </Text>
+
+              {/* Divider */}
+              <View style={styles.phraseDivider} />
+
+              {/* Suggestions */}
+              <Text style={styles.tryAskingLabel}>Try asking</Text>
+              {SUGGESTIONS.map((s) => (
+                <Pressable
+                  key={s}
+                  style={styles.suggestionRow}
+                  onPress={() => setPendingQuery(pendingQuery === s ? null : s)}
+                >
+                  <Text
+                    style={[
+                      styles.suggestionText,
+                      fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+                      pendingQuery === s && styles.suggestionTextActive,
+                    ]}
+                  >
+                    "{s}"
+                  </Text>
+                  <Text style={styles.suggestionChevron}>›</Text>
+                </Pressable>
+              ))}
             </View>
           )}
+
+          {/* Pending query prompt — shown when a suggestion is tapped */}
+          {!voiceTurn && pendingQuery ? (
+            <View style={styles.pendingQueryWrap}>
+              <Text style={styles.pendingQueryLabel}>SAY SOMETHING LIKE</Text>
+              <Text
+                style={[
+                  styles.pendingQueryText,
+                  fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
+                ]}
+              >
+                "{pendingQuery}"
+              </Text>
+            </View>
+          ) : null}
 
           <Animated.View
             style={[
@@ -1654,10 +1725,92 @@ const styles = StyleSheet.create({
   },
   centerStage: {
     flex: 1,
-    justifyContent: "center",
+    justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 32,
-    paddingBottom: 40,
+    paddingHorizontal: 28,
+    paddingTop: 20,
+    paddingBottom: 32,
+  },
+  dailyPhraseCard: {
+    alignSelf: "stretch",
+  },
+  phraseEyebrow: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
+    marginBottom: 14,
+  },
+  phraseHanzi: {
+    fontSize: 56,
+    lineHeight: 56,
+    letterSpacing: 1,
+    color: "#15110D",
+    marginBottom: 10,
+  },
+  phrasePinyin: {
+    fontSize: 15,
+    letterSpacing: 0.4,
+    color: "#C84B31",
+    marginBottom: 8,
+  },
+  phraseGloss: {
+    fontSize: 17,
+    fontStyle: "italic",
+    color: "#544B40",
+    marginBottom: 22,
+  },
+  phraseDivider: {
+    height: 1,
+    backgroundColor: "rgba(21,17,13,0.13)",
+    marginBottom: 16,
+  },
+  tryAskingLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
+    marginBottom: 6,
+  },
+  suggestionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 9,
+  },
+  suggestionText: {
+    fontSize: 16,
+    fontStyle: "italic",
+    color: "#15110D",
+    flex: 1,
+  },
+  suggestionTextActive: {
+    color: "#1D4D3B",
+  },
+  suggestionChevron: {
+    fontSize: 18,
+    color: "#8F8578",
+    marginLeft: 8,
+  },
+  pendingQueryWrap: {
+    alignItems: "center",
+    paddingVertical: 10,
+  },
+  pendingQueryLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 9,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: "#8F8578",
+    marginBottom: 4,
+  },
+  pendingQueryText: {
+    fontSize: 15,
+    fontStyle: "italic",
+    color: "#1D4D3B",
+    textAlign: "center",
   },
   dailyPhrase: {
     alignItems: "center",
