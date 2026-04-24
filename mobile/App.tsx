@@ -31,11 +31,14 @@ import {
 } from "react-native";
 
 import { useUIStore } from "./src/store/uiStore";
-import { TOKENS, getToneColor, FONT_FAMILIES } from "./src/styles/tokens";
+import { useHistoryStore, useSavedStore } from "./src/store/historyStore";
+import { TOKENS, getToneColor, FONT_FAMILIES, detectTone, toneColor } from "./src/styles/tokens";
 
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
+import HistoryScreen from "./src/components/HistoryScreen";
 import LockScreen from "./src/components/LockScreen";
+import SavedScreen from "./src/components/SavedScreen";
 import VoiceStage, { type VoiceStageState } from "./src/components/VoiceStage";
 import {
   clearUnlock,
@@ -594,18 +597,7 @@ const ListeningView = ({ liveTranscript, meteringLevel, fontsLoaded }: Listening
   );
 };
 
-// ─── Tone utilities ──────────────────────────────────────────────────────────
-
-const detectTone = (syllable: string): 1 | 2 | 3 | 4 | 5 => {
-  if (/[āēīōūǖĀĒĪŌŪǕ]/.test(syllable)) return 1;
-  if (/[áéíóúǘÁÉÍÓÚǗ]/.test(syllable)) return 2;
-  if (/[ǎěǐǒǔǚǍĚǏǑǓǙ]/.test(syllable)) return 3;
-  if (/[àèìòùǜÀÈÌÒÙǛ]/.test(syllable)) return 4;
-  return 5;
-};
-
-// Convenience: detect tone from a diacritic-marked syllable string then look up the colour.
-const toneColor = (syllable: string) => getToneColor(detectTone(syllable));
+// Tone utilities re-exported from tokens — detectTone, toneColor, getToneColor.
 
 type MorphemeEntry = { hanzi: string; pinyin: string };
 
@@ -762,6 +754,8 @@ export default function App() {
   });
   const activeTab = useUIStore((s) => s.activeTab);
   const setActiveTab = useUIStore((s) => s.setActiveTab);
+  const addHistoryEntry = useHistoryStore((s) => s.addEntry);
+  const { save: saveEntry, unsave: unsaveEntry, isSaved } = useSavedStore();
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1202,6 +1196,16 @@ export default function App() {
       const data = JSON.parse(raw) as SpeechTurnResponse;
       console.log("Voice Response Payload:", data);
       setVoiceTurn(data);
+      addHistoryEntry({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        timestamp: Date.now(),
+        transcript: data.transcript,
+        chinese: data.chinese,
+        pinyin: data.pinyin,
+        english: data.assistant_text,
+        notes: data.notes ?? [],
+        audioUrl: data.audio_url ?? null,
+      });
       setVoiceHistory((previous) => [
         ...previous.slice(-2),
         {
@@ -1549,13 +1553,9 @@ export default function App() {
         ) : null}
 
         {activeTab === "HISTORY" ? (
-          <View style={styles.tabPlaceholder}>
-            <Text style={styles.tabPlaceholderText}>History</Text>
-          </View>
+          <HistoryScreen fontsLoaded={!!fontsLoaded} />
         ) : activeTab === "SAVED" ? (
-          <View style={styles.tabPlaceholder}>
-            <Text style={styles.tabPlaceholderText}>Saved</Text>
-          </View>
+          <SavedScreen fontsLoaded={!!fontsLoaded} />
         ) : null}
         {activeTab === "SPEAK" ? <View style={styles.centerStage}>
           <View style={styles.practiceScenarioWrap}>

@@ -20,6 +20,17 @@ export const TOKENS = {
 export const getToneColor = (tone: 1 | 2 | 3 | 4 | 5): string =>
   TOKENS.tones[`t${tone}` as keyof typeof TOKENS.tones];
 
+export const detectTone = (syllable: string): 1 | 2 | 3 | 4 | 5 => {
+  if (/[āēīōūǖĀĒĪŌŪǕ]/.test(syllable)) return 1;
+  if (/[áéíóúǘÁÉÍÓÚǗ]/.test(syllable)) return 2;
+  if (/[ǎěǐǒǔǚǍĚǏǑǓǙ]/.test(syllable)) return 3;
+  if (/[àèìòùǜÀÈÌÒÙǛ]/.test(syllable)) return 4;
+  return 5;
+};
+
+export const toneColor = (syllable: string): string =>
+  getToneColor(detectTone(syllable));
+
 export const FONT_FAMILIES = {
   frauncesRegular: "Fraunces_400Regular",
   frauncesRegularItalic: "Fraunces_400Regular_Italic",
@@ -31,3 +42,4 @@ export const FONT_FAMILIES = {
   spaceGroteskSemiBold: "SpaceGrotesk_600SemiBold",
   spaceGroteskBold: "SpaceGrotesk_700Bold",
 } as const;
+
