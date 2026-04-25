@@ -34,6 +34,7 @@ import {
 
 import { useUIStore } from "./src/store/uiStore";
 import { useHistoryStore, useSavedStore } from "./src/store/historyStore";
+import type { HistoryEntry } from "./src/types/history";
 import { TOKENS, getToneColor, FONT_FAMILIES, detectTone, toneColor } from "./src/styles/tokens";
 
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
@@ -629,14 +630,17 @@ type ResponseViewProps = {
   fontsLoaded: boolean;
   onPlayAudio: (slow: boolean) => void;
   isPlaying: boolean;
+  historyEntry: HistoryEntry | null;
 };
 
-const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying }: ResponseViewProps) => {
+const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, historyEntry }: ResponseViewProps) => {
   const frauncesItalic = fontsLoaded ? { fontFamily: FONT_FAMILIES.frauncesMediumItalic } : {};
   const notoSerif = fontsLoaded ? { fontFamily: FONT_FAMILIES.notoSerifMedium } : {};
   const spaceGrotesk = fontsLoaded ? { fontFamily: FONT_FAMILIES.spaceGroteskSemiBold } : {};
   const spaceGroteskBold = fontsLoaded ? { fontFamily: FONT_FAMILIES.spaceGroteskBold } : {};
   const breakdown = buildBreakdown(turn.chinese, turn.pinyin);
+  const { save: saveEntry, unsave: unsaveEntry, isSaved } = useSavedStore();
+  const saved = historyEntry ? isSaved(historyEntry.id) : false;
 
   return (
     <ScrollView
@@ -679,6 +683,14 @@ const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying }: ResponseVie
         <Pressable style={styles.resSlowButton} onPress={() => onPlayAudio(true)}>
           <Text style={styles.resSlowButtonText}>½× SLOW</Text>
         </Pressable>
+        {historyEntry ? (
+          <Pressable
+            style={styles.resSaveButton}
+            onPress={() => saved ? unsaveEntry(historyEntry.id) : saveEntry(historyEntry, "GENERAL")}
+          >
+            <Text style={[styles.resSaveIcon, saved && styles.resSaveIconSaved]}>✦</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {/* 6. Horizontal rule */}
@@ -748,6 +760,7 @@ export default function App() {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [showCantHear, setShowCantHear] = useState(false);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
+  const [currentHistoryEntry, setCurrentHistoryEntry] = useState<HistoryEntry | null>(null);
   const [voiceHistory, setVoiceHistory] = useState<VoiceExchange[]>([]);
   const [showScenarioPicker, setShowScenarioPicker] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState<PracticeScenario | null>(null);
@@ -1103,7 +1116,7 @@ export default function App() {
 
       const data = JSON.parse(raw) as SpeechTurnResponse;
       setVoiceTurn(data);
-      addHistoryEntry({
+      const entryA: HistoryEntry = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         timestamp: Date.now(),
         transcript: data.transcript || text,
@@ -1112,7 +1125,9 @@ export default function App() {
         english: data.assistant_text,
         notes: data.notes ?? [],
         audioUrl: data.audio_url ?? null,
-      });
+      };
+      addHistoryEntry(entryA);
+      setCurrentHistoryEntry(entryA);
       setVoiceHistory((previous) => [
         ...previous.slice(-2),
         {
@@ -1325,7 +1340,7 @@ export default function App() {
       }
 
       setVoiceTurn(data);
-      addHistoryEntry({
+      const entryB: HistoryEntry = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         timestamp: Date.now(),
         transcript: data.transcript,
@@ -1334,7 +1349,9 @@ export default function App() {
         english: data.assistant_text,
         notes: data.notes ?? [],
         audioUrl: data.audio_url ?? null,
-      });
+      };
+      addHistoryEntry(entryB);
+      setCurrentHistoryEntry(entryB);
       setVoiceHistory((previous) => [
         ...previous.slice(-2),
         {
@@ -1811,6 +1828,7 @@ export default function App() {
                 fontsLoaded={!!fontsLoaded}
                 onPlayAudio={(slow) => { void handleReplayAudio(slow); }}
                 isPlaying={isPlayingPronunciation}
+                historyEntry={currentHistoryEntry}
               />
             </Animated.View>
           ) : (
@@ -2678,6 +2696,22 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 1.2,
     color: TOKENS.ink,
+  },
+  resSaveButton: {
+    borderRadius: TOKENS.buttonRadius,
+    borderWidth: 1.5,
+    borderColor: TOKENS.ink,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resSaveIcon: {
+    fontSize: 16,
+    color: TOKENS.inkFaint,
+  },
+  resSaveIconSaved: {
+    color: TOKENS.accent,
   },
   resRule: {
     height: 1,
