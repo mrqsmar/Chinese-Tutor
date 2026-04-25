@@ -535,6 +535,12 @@ const ListeningView = ({ liveTranscript, meteringLevel, fontsLoaded }: Listening
   const caretBlink = useRef(new Animated.Value(1)).current;
   const dotPulse = useRef(new Animated.Value(1)).current;
   const meteringRef = useRef(meteringLevel);
+  const [keepHolding, setKeepHolding] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setKeepHolding(false), 800);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => { meteringRef.current = meteringLevel; }, [meteringLevel]);
 
@@ -591,7 +597,7 @@ const ListeningView = ({ liveTranscript, meteringLevel, fontsLoaded }: Listening
             fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
           ]}
         >
-          {liveTranscript || "Listening…"}
+          {keepHolding ? "Keep holding…" : (liveTranscript || "Listening…")}
         </Text>
         <Animated.View style={[styles.transcriptCaret, { opacity: caretBlink }]} />
       </View>
@@ -1262,8 +1268,9 @@ export default function App() {
       const fileSize = "size" in fileInfo ? fileInfo.size : undefined;
       console.log("Voice recording duration (ms):", status.durationMillis);
       console.log("Voice recording file size (bytes):", fileSize);
-      if (!status.durationMillis || status.durationMillis < 200) {
-        throw new Error("Recording too short. Please hold the button longer.");
+      if (!status.durationMillis || status.durationMillis < 800) {
+        setShowCantHear(true);
+        return;
       }
       const formData = new FormData();
       formData.append("audio", {
@@ -1378,13 +1385,10 @@ export default function App() {
         voiceUploadError instanceof Error &&
         (voiceUploadError.name === "AbortError" ||
           errMsg.toLowerCase().includes("timed out"));
-      const isTooShort = errMsg.includes("Recording too short");
       setVoiceError(
-        isTooShort
-          ? errMsg
-          : isTimeout
-            ? "Voice request timed out. Please try again."
-            : "Voice request failed. Please try again."
+        isTimeout
+          ? "Voice request timed out. Please try again."
+          : "Voice request failed. Please try again."
       );
     } finally {
       userCancelledRef.current = false;
