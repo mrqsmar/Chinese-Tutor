@@ -39,8 +39,10 @@ import { TOKENS, getToneColor, FONT_FAMILIES, detectTone, toneColor } from "./sr
 
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
+import AudioErrorCard from "./src/components/AudioErrorCard";
 import CantHearCard from "./src/components/CantHearCard";
 import MicDeniedCard from "./src/components/MicDeniedCard";
+import NetworkErrorCard from "./src/components/NetworkErrorCard";
 import HistoryScreen from "./src/components/HistoryScreen";
 import LockScreen from "./src/components/LockScreen";
 import SavedScreen from "./src/components/SavedScreen";
@@ -787,7 +789,8 @@ export default function App() {
   const [isAudioPending, setIsAudioPending] = useState(false);
   const [isPlayingPronunciation, setIsPlayingPronunciation] = useState(false);
   const [showVoiceComplete, setShowVoiceComplete] = useState(false);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [showTranslateError, setShowTranslateError] = useState(false);
+  const [showAudioError, setShowAudioError] = useState(false);
   const [showCantHear, setShowCantHear] = useState(false);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
   const [currentHistoryEntry, setCurrentHistoryEntry] = useState<HistoryEntry | null>(null);
@@ -947,7 +950,7 @@ export default function App() {
     if (next === preference) return;
     setVoiceTurn(null);
     setVoiceHistory([]);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
     setPreference(next);
     await AsyncStorage.setItem(STORAGE_KEY, next);
   };
@@ -957,7 +960,7 @@ export default function App() {
     setShowScenarioPicker(false);
     setVoiceTurn(null);
     setVoiceHistory([]);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
   };
 
   const handleLogin = async (username: string, password: string) => {
@@ -987,7 +990,7 @@ export default function App() {
     await logout();
     setVoiceTurn(null);
     setVoiceHistory([]);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
     setPreference(null);
     setIsLoadingPreference(true);
     setIsAuthenticated(false);
@@ -1081,7 +1084,7 @@ export default function App() {
       console.log("Audio poll response:", raw.slice(0, 500));
       if (!response.ok) {
         setIsAudioPending(false);
-        setVoiceError("Audio fetch failed. Please try again.");
+        setShowAudioError(true);
         return;
       }
       const data = JSON.parse(raw) as {
@@ -1103,18 +1106,18 @@ export default function App() {
           return;
         }
         setIsAudioPending(false);
-        setVoiceError("Audio unavailable. Please try again.");
+        setShowAudioError(true);
         return;
       }
       if (data.status === "error") {
         setIsAudioPending(false);
-        setVoiceError(data.tts_error ?? "Audio failed. Please try again.");
+        setShowAudioError(true);
         return;
       }
       await wait(1000);
     }
     setIsAudioPending(false);
-    setVoiceError("Audio is taking too long. Please try again.");
+    setShowAudioError(true);
   };
 
   const handleTypeInsteadSubmit = async (text: string) => {
@@ -1122,7 +1125,7 @@ export default function App() {
     setShowCantHear(false);
     setIsUploadingVoice(true);
     setProcessingTranscript(text);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
     try {
       const formData = new FormData();
       formData.append("text", text);
@@ -1189,12 +1192,12 @@ export default function App() {
         } catch (playbackError) {
           console.error("Playback error:", playbackError);
           setIsPlayingPronunciation(false);
-          setVoiceError("Audio playback failed. Please check your volume and try again.");
+          setShowAudioError(true);
         }
       } else if (data.audio_pending && data.audio_job_id) {
         await pollForAudioJob(data.audio_job_id);
       } else {
-        setVoiceError(data.tts_error ?? "Audio unavailable. Please try again.");
+        setShowAudioError(true);
       }
     } catch (err) {
       console.error("Type-instead error:", err);
@@ -1202,7 +1205,7 @@ export default function App() {
         setProcessingTranscript("");
         return;
       }
-      setVoiceError("Translation failed. Please try again.");
+      setShowTranslateError(true);
     } finally {
       userCancelledRef.current = false;
       voiceFetchControllerRef.current = null;
@@ -1253,19 +1256,14 @@ export default function App() {
       return;
     }
     const hasPermission = await ensureMicPermission();
-    if (!hasPermission) {
-      setVoiceError(
-        "Microphone access is required. Please enable it in system settings."
-      );
-      return;
-    }
+    if (!hasPermission) return;
     if (completeTimeoutRef.current) {
       clearTimeout(completeTimeoutRef.current);
       completeTimeoutRef.current = null;
     }
     setShowVoiceComplete(false);
     setShowCantHear(false);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
     if (soundRef.current) {
       await soundRef.current.stopAsync();
       await soundRef.current.unloadAsync();
@@ -1301,7 +1299,7 @@ export default function App() {
     setIsUploadingVoice(true);
     setShowVoiceComplete(false);
     setIsPlayingPronunciation(false);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
     setProcessingTranscript(liveTranscript);
     setLiveTranscript("");
     setMeteringLevel(-160);
@@ -1415,14 +1413,12 @@ export default function App() {
         } catch (playbackError) {
           console.error("Voice playback error:", playbackError);
           setIsPlayingPronunciation(false);
-          setVoiceError(
-            "Audio playback failed. Please check your volume and try again."
-          );
+          setShowAudioError(true);
         }
       } else if (data.audio_pending && data.audio_job_id) {
         await pollForAudioJob(data.audio_job_id);
       } else {
-        setVoiceError(data.tts_error ?? "Audio unavailable. Please try again.");
+        setShowAudioError(true);
       }
     } catch (voiceUploadError) {
       console.error("Voice upload error:", voiceUploadError);
@@ -1436,11 +1432,7 @@ export default function App() {
         voiceUploadError instanceof Error &&
         (voiceUploadError.name === "AbortError" ||
           errMsg.toLowerCase().includes("timed out"));
-      setVoiceError(
-        isTimeout
-          ? "Voice request timed out. Please try again."
-          : "Voice request failed. Please try again."
-      );
+      setShowTranslateError(true);
     } finally {
       userCancelledRef.current = false;
       voiceFetchControllerRef.current = null;
@@ -1736,9 +1728,9 @@ export default function App() {
           </View>
         </Animated.View>
 
-        {error || voiceError ? (
+        {error ? (
           <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>{voiceError ?? error}</Text>
+            <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
 
@@ -1760,7 +1752,14 @@ export default function App() {
             onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
           />
         ) : null}
-        {activeTab === "SPEAK" && micPermission !== "denied" && !showCantHear ? <View style={styles.centerStage}>
+        {activeTab === "SPEAK" && micPermission !== "denied" && showTranslateError ? (
+          <NetworkErrorCard
+            fontsLoaded={!!fontsLoaded}
+            onTryAgain={() => setShowTranslateError(false)}
+            onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
+          />
+        ) : null}
+        {activeTab === "SPEAK" && micPermission !== "denied" && !showCantHear && !showTranslateError ? <View style={styles.centerStage}>
           <View style={styles.practiceScenarioWrap}>
             <Pressable
               style={[
@@ -1854,6 +1853,11 @@ export default function App() {
               processingTranscript={processingTranscript}
               fontsLoaded={!!fontsLoaded}
               onCancel={handleCancelTranslation}
+            />
+          ) : voiceTurn && showAudioError ? (
+            <AudioErrorCard
+              fontsLoaded={!!fontsLoaded}
+              onShowText={() => setShowAudioError(false)}
             />
           ) : voiceTurn ? (
             <Animated.View style={{ opacity: responseFade, alignSelf: "stretch" }}>
