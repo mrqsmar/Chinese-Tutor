@@ -138,7 +138,7 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     backgroundColor: TOKENS.ink,
-    borderRadius: 2,
+    borderRadius: TOKENS.buttonRadius,
     paddingVertical: 15,
     alignItems: "center",
   },
@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
   },
   secondaryBtn: {
-    borderRadius: 2,
+    borderRadius: TOKENS.buttonRadius,
     borderWidth: 1.5,
     borderColor: TOKENS.ink,
     paddingVertical: 15,
@@ -200,7 +200,7 @@ const styles = StyleSheet.create({
   },
   sheetSubmitBtn: {
     backgroundColor: TOKENS.ink,
-    borderRadius: 2,
+    borderRadius: TOKENS.buttonRadius,
     paddingVertical: 14,
     alignItems: "center",
   },

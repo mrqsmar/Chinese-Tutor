@@ -10,6 +10,7 @@ import {
 } from "react-native";
 
 import { getAppPassword } from "../config/appLock";
+import { TOKENS } from "../styles/tokens";
 
 type LockScreenProps = {
   onUnlock: () => Promise<void> | void;
@@ -82,7 +83,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 420,
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
+    borderRadius: TOKENS.cardRadius,
     padding: 24,
     shadowColor: "#000000",
     shadowOpacity: 0.12,
@@ -119,7 +120,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
     backgroundColor: "#2563EB",
     paddingVertical: 12,
-    borderRadius: 16,
+    borderRadius: TOKENS.buttonRadius,
     alignItems: "center",
   },
   buttonDisabled: {

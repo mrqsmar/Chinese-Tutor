@@ -1992,7 +1992,7 @@ const styles = StyleSheet.create({
   },
   practiceScenarioButton: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: TOKENS.buttonRadius,
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 4,
@@ -2011,7 +2011,7 @@ const styles = StyleSheet.create({
   },
   practiceScenarioCard: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: TOKENS.cardRadius,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -2027,7 +2027,7 @@ const styles = StyleSheet.create({
   relevantVocabPanel: {
     width: "100%",
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: TOKENS.cardRadius,
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 14,
@@ -2224,7 +2224,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FDFAF6",
     marginTop: 88,
     marginRight: 16,
-    borderRadius: 12,
+    borderRadius: TOKENS.cardRadius,
     paddingVertical: 12,
     paddingHorizontal: 16,
     minWidth: 180,
@@ -2455,7 +2455,7 @@ const styles = StyleSheet.create({
   voiceResultCenter: {
     alignItems: "center",
     marginBottom: 48,
-    borderRadius: 20,
+    borderRadius: TOKENS.cardRadius,
     borderWidth: 1,
     paddingHorizontal: 24,
     paddingVertical: 20,
@@ -2495,7 +2495,7 @@ const styles = StyleSheet.create({
   },
   voiceHistoryBubble: {
     borderWidth: 1,
-    borderRadius: 18,
+    borderRadius: TOKENS.cardRadius,
     paddingVertical: 12,
     paddingHorizontal: 14,
   },
@@ -2551,7 +2551,7 @@ const styles = StyleSheet.create({
   },
   onboardingCard: {
     backgroundColor: "#FFF7ED",
-    borderRadius: 20,
+    borderRadius: TOKENS.cardRadius,
     padding: 24,
     width: "100%",
     maxWidth: 420,
@@ -2577,7 +2577,7 @@ const styles = StyleSheet.create({
   onboardingButton: {
     backgroundColor: "#B91C1C",
     paddingVertical: 12,
-    borderRadius: 18,
+    borderRadius: TOKENS.buttonRadius,
     alignItems: "center",
     marginBottom: 12,
   },
@@ -2647,7 +2647,7 @@ const styles = StyleSheet.create({
   resPlayButton: {
     flex: 2,
     backgroundColor: TOKENS.ink,
-    borderRadius: 2,
+    borderRadius: TOKENS.buttonRadius,
     paddingVertical: 12,
     alignItems: "center",
   },
@@ -2663,7 +2663,7 @@ const styles = StyleSheet.create({
   },
   resSlowButton: {
     flex: 1,
-    borderRadius: 2,
+    borderRadius: TOKENS.buttonRadius,
     borderWidth: 1.5,
     borderColor: TOKENS.ink,
     paddingVertical: 12,

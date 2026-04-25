@@ -8,6 +8,8 @@ export const TOKENS = {
   accentSoft: "#E3EADD",
   rule: "rgba(21,17,13,0.12)",
   ruleStrong: "rgba(21,17,13,0.22)",
+  buttonRadius: 2,
+  cardRadius: 16,
   tones: {
     t1: "#B44637",
     t2: "#3E7A3C",

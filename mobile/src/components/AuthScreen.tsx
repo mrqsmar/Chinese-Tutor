@@ -9,6 +9,8 @@ import {
   View,
 } from "react-native";
 
+import { TOKENS } from "../styles/tokens";
+
 type AuthScreenProps = {
   onSubmit: (username: string, password: string) => void;
   isSubmitting: boolean;
@@ -74,7 +76,7 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    borderRadius: TOKENS.cardRadius,
     padding: 24,
     width: "100%",
     maxWidth: 420,
@@ -104,7 +106,7 @@ const styles = StyleSheet.create({
   button: {
     marginTop: 16,
     paddingVertical: 12,
-    borderRadius: 16,
+    borderRadius: TOKENS.buttonRadius,
     backgroundColor: "#2F6FED",
     alignItems: "center",
   },
