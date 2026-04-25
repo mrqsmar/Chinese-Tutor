@@ -185,13 +185,6 @@ type SpeechTurnResponse = {
   transcript_confidence?: number;
 };
 
-type VoiceExchange = {
-  id: string;
-  userTranscript: string;
-  tutorChinese: string;
-  tutorPinyin: string;
-  tutorEnglish: string;
-};
 
 type PracticeScenario = {
   id: "ordering_food" | "taking_taxi" | "meeting_someone_new";
@@ -794,7 +787,6 @@ export default function App() {
   const [showCantHear, setShowCantHear] = useState(false);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
   const [currentHistoryEntry, setCurrentHistoryEntry] = useState<HistoryEntry | null>(null);
-  const [voiceHistory, setVoiceHistory] = useState<VoiceExchange[]>([]);
   const [showScenarioPicker, setShowScenarioPicker] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState<PracticeScenario | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
@@ -949,7 +941,6 @@ export default function App() {
   const handleSwitchLanguage = async (next: SpeakerPreference) => {
     if (next === preference) return;
     setVoiceTurn(null);
-    setVoiceHistory([]);
     setShowTranslateError(false); setShowAudioError(false);
     setPreference(next);
     await AsyncStorage.setItem(STORAGE_KEY, next);
@@ -959,7 +950,6 @@ export default function App() {
     setSelectedScenario(scenario);
     setShowScenarioPicker(false);
     setVoiceTurn(null);
-    setVoiceHistory([]);
     setShowTranslateError(false); setShowAudioError(false);
   };
 
@@ -989,7 +979,6 @@ export default function App() {
   const handleLogout = async () => {
     await logout();
     setVoiceTurn(null);
-    setVoiceHistory([]);
     setShowTranslateError(false); setShowAudioError(false);
     setPreference(null);
     setIsLoadingPreference(true);
@@ -1165,16 +1154,6 @@ export default function App() {
       };
       addHistoryEntry(entryA);
       setCurrentHistoryEntry(entryA);
-      setVoiceHistory((previous) => [
-        ...previous.slice(-2),
-        {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          userTranscript: text,
-          tutorChinese: data.chinese,
-          tutorPinyin: data.pinyin,
-          tutorEnglish: data.assistant_text,
-        },
-      ]);
       setShowVoiceComplete(true);
       if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
       completeTimeoutRef.current = setTimeout(() => {
@@ -1384,16 +1363,6 @@ export default function App() {
       };
       addHistoryEntry(entryB);
       setCurrentHistoryEntry(entryB);
-      setVoiceHistory((previous) => [
-        ...previous.slice(-2),
-        {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          userTranscript: data.transcript,
-          tutorChinese: data.chinese,
-          tutorPinyin: data.pinyin,
-          tutorEnglish: data.assistant_text,
-        },
-      ]);
       setShowVoiceComplete(true);
       if (completeTimeoutRef.current) {
         clearTimeout(completeTimeoutRef.current);
@@ -1760,88 +1729,6 @@ export default function App() {
           />
         ) : null}
         {activeTab === "SPEAK" && micPermission !== "denied" && !showCantHear && !showTranslateError ? <View style={styles.centerStage}>
-          <View style={styles.practiceScenarioWrap}>
-            <Pressable
-              style={[
-                styles.practiceScenarioButton,
-                {
-                  backgroundColor: activeTheme.surfaceTint,
-                  borderColor: activeTheme.surfaceBorder,
-                },
-              ]}
-              onPress={() => setShowScenarioPicker((previous) => !previous)}
-            >
-              <Text style={[styles.practiceScenarioButtonText, { color: activeTheme.titleText }]}>
-                {selectedScenario
-                  ? `Practice Scenario: ${selectedScenario.title}`
-                  : "Practice Scenario"}
-              </Text>
-              <Text style={[styles.practiceScenarioButtonHint, { color: activeTheme.subtitleText }]}>
-                {showScenarioPicker ? "Hide options" : "Choose a conversation context"}
-              </Text>
-            </Pressable>
-
-            {showScenarioPicker ? (
-              <View style={styles.practiceScenarioCards}>
-                {PRACTICE_SCENARIOS.map((scenario) => {
-                  const isActive = selectedScenario?.id === scenario.id;
-                  return (
-                    <Pressable
-                      key={scenario.id}
-                      style={[
-                        styles.practiceScenarioCard,
-                        {
-                          backgroundColor: activeTheme.surfaceTint,
-                          borderColor: activeTheme.surfaceBorder,
-                        },
-                        isActive && {
-                          borderColor: activeTheme.messageAccentText,
-                        },
-                      ]}
-                      onPress={() => handleSelectScenario(scenario)}
-                    >
-                      <Text style={[styles.practiceScenarioCardTitle, { color: activeTheme.titleText }]}>
-                        {scenario.title}
-                      </Text>
-                      <Text style={[styles.practiceScenarioCardDescription, { color: activeTheme.subtitleText }]}>
-                        {scenario.description}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
-          </View>
-
-          {selectedScenario ? (
-            <View
-              style={[
-                styles.relevantVocabPanel,
-                {
-                  backgroundColor: activeTheme.surfaceTint,
-                  borderColor: activeTheme.surfaceBorder,
-                },
-              ]}
-            >
-              <Text style={[styles.relevantVocabTitle, { color: activeTheme.titleText }]}>
-                Relevant vocab · {selectedScenario.title}
-              </Text>
-              {selectedScenario.vocab.map((word) => (
-                <View key={`${selectedScenario.id}-${word.chinese}`} style={styles.relevantVocabRow}>
-                  <Text style={[styles.relevantVocabChinese, { color: activeTheme.titleText }]}>
-                    {word.chinese}
-                  </Text>
-                  <Text style={[styles.relevantVocabPinyin, { color: activeTheme.messageAccentText }]}>
-                    {word.pinyin}
-                  </Text>
-                  <Text style={[styles.relevantVocabEnglish, { color: activeTheme.subtitleText }]}>
-                    {word.english}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-
           {isRecording ? (
             <ListeningView
               liveTranscript={liveTranscript}
@@ -1948,71 +1835,6 @@ export default function App() {
             />
           </Animated.View>
 
-          {voiceHistory.length ? (
-            <View style={styles.voiceHistoryWrap}>
-              {voiceHistory.map((exchange) => (
-                <View
-                  key={exchange.id}
-                  style={[
-                    styles.voiceHistoryBubble,
-                    {
-                      backgroundColor: activeTheme.surfaceTint,
-                      borderColor: activeTheme.surfaceBorder,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.voiceHistoryUserLabel,
-                      { color: activeTheme.voiceSupportText },
-                    ]}
-                  >
-                    You said
-                  </Text>
-                  <Text
-                    style={[
-                      styles.voiceHistoryUserText,
-                      { color: activeTheme.titleText },
-                    ]}
-                  >
-                    {exchange.userTranscript}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.voiceHistoryTutorLabel,
-                      { color: activeTheme.voiceSupportText },
-                    ]}
-                  >
-                    Tutor replied
-                  </Text>
-                  <Text
-                    style={[
-                      styles.voiceHistoryTutorChinese,
-                      { color: activeTheme.titleText },
-                    ]}
-                  >
-                    {exchange.tutorChinese}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.voiceHistoryTutorPinyin,
-                      { color: activeTheme.messageAccentText },
-                    ]}
-                  >
-                    {exchange.tutorPinyin}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.voiceHistoryTutorEnglish,
-                      { color: activeTheme.subtitleText },
-                    ]}
-                  >
-                    {exchange.tutorEnglish}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
         </View> : null}
       </KeyboardAvoidingView>
       <Modal
@@ -2023,18 +1845,98 @@ export default function App() {
       >
         <Pressable style={styles.drawerOverlay} onPress={() => setShowDrawer(false)}>
           <View style={styles.drawerPanel}>
-            {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? (
-              <Text style={styles.drawerEmpty}>Settings coming soon</Text>
-            ) : (
-              <Pressable
-                onPress={() => {
-                  setShowDrawer(false);
-                  void handleLogout();
-                }}
+            <Text style={styles.drawerSectionLabel}>PRACTICE SCENARIO</Text>
+            <Pressable
+              style={[
+                styles.practiceScenarioButton,
+                {
+                  backgroundColor: activeTheme.surfaceTint,
+                  borderColor: activeTheme.surfaceBorder,
+                },
+              ]}
+              onPress={() => setShowScenarioPicker((previous) => !previous)}
+            >
+              <Text style={[styles.practiceScenarioButtonText, { color: activeTheme.titleText }]}>
+                {selectedScenario ? selectedScenario.title : "None selected"}
+              </Text>
+              <Text style={[styles.practiceScenarioButtonHint, { color: activeTheme.subtitleText }]}>
+                {showScenarioPicker ? "Hide options" : "Choose a conversation context"}
+              </Text>
+            </Pressable>
+
+            {showScenarioPicker ? (
+              <View style={styles.practiceScenarioCards}>
+                {PRACTICE_SCENARIOS.map((scenario) => {
+                  const isActive = selectedScenario?.id === scenario.id;
+                  return (
+                    <Pressable
+                      key={scenario.id}
+                      style={[
+                        styles.practiceScenarioCard,
+                        {
+                          backgroundColor: activeTheme.surfaceTint,
+                          borderColor: activeTheme.surfaceBorder,
+                        },
+                        isActive && {
+                          borderColor: activeTheme.messageAccentText,
+                        },
+                      ]}
+                      onPress={() => handleSelectScenario(scenario)}
+                    >
+                      <Text style={[styles.practiceScenarioCardTitle, { color: activeTheme.titleText }]}>
+                        {scenario.title}
+                      </Text>
+                      <Text style={[styles.practiceScenarioCardDescription, { color: activeTheme.subtitleText }]}>
+                        {scenario.description}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            {selectedScenario ? (
+              <View
+                style={[
+                  styles.relevantVocabPanel,
+                  {
+                    backgroundColor: activeTheme.surfaceTint,
+                    borderColor: activeTheme.surfaceBorder,
+                  },
+                ]}
               >
-                <Text style={styles.drawerItem}>Logout</Text>
-              </Pressable>
-            )}
+                <Text style={[styles.relevantVocabTitle, { color: activeTheme.titleText }]}>
+                  Vocab · {selectedScenario.title}
+                </Text>
+                {selectedScenario.vocab.map((word) => (
+                  <View key={`${selectedScenario.id}-${word.chinese}`} style={styles.relevantVocabRow}>
+                    <Text style={[styles.relevantVocabChinese, { color: activeTheme.titleText }]}>
+                      {word.chinese}
+                    </Text>
+                    <Text style={[styles.relevantVocabPinyin, { color: activeTheme.messageAccentText }]}>
+                      {word.pinyin}
+                    </Text>
+                    <Text style={[styles.relevantVocabEnglish, { color: activeTheme.subtitleText }]}>
+                      {word.english}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            {!DEMO_MODE && !CHATBOT_ONLY_MODE && REQUIRE_AUTH ? (
+              <>
+                <View style={styles.drawerDivider} />
+                <Pressable
+                  onPress={() => {
+                    setShowDrawer(false);
+                    void handleLogout();
+                  }}
+                >
+                  <Text style={styles.drawerItem}>Logout</Text>
+                </Pressable>
+              </>
+            ) : null}
           </View>
         </Pressable>
       </Modal>
@@ -2285,15 +2187,28 @@ const styles = StyleSheet.create({
     backgroundColor: "#FDFAF6",
     marginTop: 88,
     marginRight: 16,
+    marginLeft: 16,
     borderRadius: TOKENS.cardRadius,
-    paddingVertical: 12,
+    paddingVertical: 16,
     paddingHorizontal: 16,
-    minWidth: 180,
     shadowColor: "#000",
     shadowOpacity: 0.12,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 8,
+  },
+  drawerSectionLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: TOKENS.inkFaint,
+    marginBottom: 10,
+  },
+  drawerDivider: {
+    height: 1,
+    backgroundColor: TOKENS.rule,
+    marginVertical: 12,
   },
   drawerItem: {
     fontSize: 15,
@@ -2548,50 +2463,6 @@ const styles = StyleSheet.create({
   },
   micStageWrap: {
     alignItems: "center",
-  },
-  voiceHistoryWrap: {
-    width: "100%",
-    marginTop: 14,
-    gap: 10,
-  },
-  voiceHistoryBubble: {
-    borderWidth: 1,
-    borderRadius: TOKENS.cardRadius,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  voiceHistoryUserLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  voiceHistoryUserText: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginTop: 3,
-  },
-  voiceHistoryTutorLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginTop: 10,
-  },
-  voiceHistoryTutorChinese: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginTop: 4,
-  },
-  voiceHistoryTutorPinyin: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginTop: 2,
-  },
-  voiceHistoryTutorEnglish: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 2,
   },
   errorBanner: {
     backgroundColor: "#FEE2E2",
