@@ -625,6 +625,14 @@ const buildBreakdown = (chinese: string, pinyin: string): MorphemeEntry[] => {
 
 // ─── Response view ────────────────────────────────────────────────────────────
 
+const TONE_LEGEND = [
+  { tone: 1 as const, label: "1 flat" },
+  { tone: 2 as const, label: "2 rising" },
+  { tone: 3 as const, label: "3 dipping" },
+  { tone: 4 as const, label: "4 falling" },
+  { tone: 5 as const, label: "neutral" },
+];
+
 type ResponseViewProps = {
   turn: SpeechTurnResponse;
   fontsLoaded: boolean;
@@ -666,6 +674,15 @@ const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, isAudioPendin
         {turn.pinyin.trim().split(/\s+/).map((syllable, i) => (
           <Text key={i} style={[styles.resPinyinSyllable, spaceGroteskBold, { color: toneColor(syllable) }]}>
             {syllable}
+          </Text>
+        ))}
+      </View>
+
+      {/* 3b. Tone legend */}
+      <View style={styles.toneLegendRow}>
+        {TONE_LEGEND.map(({ tone, label }) => (
+          <Text key={tone} style={[styles.toneLegendItem, { color: getToneColor(tone) }]}>
+            ● {label}
           </Text>
         ))}
       </View>
@@ -2671,6 +2688,17 @@ const styles = StyleSheet.create({
   resPinyinSyllable: {
     fontSize: 16,
     fontWeight: "600",
+  },
+  toneLegendRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 14,
+  },
+  toneLegendItem: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 9,
+    letterSpacing: 1.2,
   },
   resGloss: {
     fontSize: 17,
