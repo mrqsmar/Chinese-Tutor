@@ -630,10 +630,11 @@ type ResponseViewProps = {
   fontsLoaded: boolean;
   onPlayAudio: (slow: boolean) => void;
   isPlaying: boolean;
+  isAudioPending: boolean;
   historyEntry: HistoryEntry | null;
 };
 
-const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, historyEntry }: ResponseViewProps) => {
+const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, isAudioPending, historyEntry }: ResponseViewProps) => {
   const frauncesItalic = fontsLoaded ? { fontFamily: FONT_FAMILIES.frauncesMediumItalic } : {};
   const notoSerif = fontsLoaded ? { fontFamily: FONT_FAMILIES.notoSerifMedium } : {};
   const spaceGrotesk = fontsLoaded ? { fontFamily: FONT_FAMILIES.spaceGroteskSemiBold } : {};
@@ -675,12 +676,23 @@ const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, historyEntry 
       {/* 5. Action row */}
       <View style={styles.resActionRow}>
         <Pressable
-          style={[styles.resPlayButton, isPlaying && styles.resPlayButtonActive]}
+          style={[
+            styles.resPlayButton,
+            isPlaying && styles.resPlayButtonActive,
+            isAudioPending && styles.resPlayButtonPending,
+          ]}
           onPress={() => onPlayAudio(false)}
+          disabled={isAudioPending || isPlaying}
         >
-          <Text style={styles.resPlayButtonText}>▶ PLAY AUDIO</Text>
+          <Text style={styles.resPlayButtonText}>
+            {isAudioPending ? "⋯ LOADING" : "▶ PLAY AUDIO"}
+          </Text>
         </Pressable>
-        <Pressable style={styles.resSlowButton} onPress={() => onPlayAudio(true)}>
+        <Pressable
+          style={[styles.resSlowButton, (isAudioPending || isPlaying) && styles.resSlowButtonDisabled]}
+          onPress={() => onPlayAudio(true)}
+          disabled={isAudioPending || isPlaying}
+        >
           <Text style={styles.resSlowButtonText}>½× SLOW</Text>
         </Pressable>
         {historyEntry ? (
@@ -755,6 +767,7 @@ export default function App() {
     useState<MicPermissionState>("undetermined");
   const [isRecording, setIsRecording] = useState(false);
   const [isUploadingVoice, setIsUploadingVoice] = useState(false);
+  const [isAudioPending, setIsAudioPending] = useState(false);
   const [isPlayingPronunciation, setIsPlayingPronunciation] = useState(false);
   const [showVoiceComplete, setShowVoiceComplete] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
@@ -1036,14 +1049,13 @@ export default function App() {
   };
 
   const pollForAudioJob = async (jobId: string) => {
+    setIsAudioPending(true);
     const maxAttempts = 10;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       logApiBaseUrl(`Audio poll attempt ${attempt}`);
       const { response } = await apiFetchWithTimeout(
         `/v1/speech/audio/${jobId}`,
-        {
-          method: "GET",
-        },
+        { method: "GET" },
         30_000,
         0
       );
@@ -1051,6 +1063,7 @@ export default function App() {
       console.log("Audio poll status:", response.status);
       console.log("Audio poll response:", raw.slice(0, 500));
       if (!response.ok) {
+        setIsAudioPending(false);
         setVoiceError("Audio fetch failed. Please try again.");
         return;
       }
@@ -1068,18 +1081,22 @@ export default function App() {
           base64: data.audio_base64 ?? undefined,
         };
         if (audioPayload.url || audioPayload.base64) {
+          setIsAudioPending(false);
           await playVoiceAudio(audioPayload, data.audio_mime ?? undefined);
           return;
         }
+        setIsAudioPending(false);
         setVoiceError("Audio unavailable. Please try again.");
         return;
       }
       if (data.status === "error") {
+        setIsAudioPending(false);
         setVoiceError(data.tts_error ?? "Audio failed. Please try again.");
         return;
       }
       await wait(1000);
     }
+    setIsAudioPending(false);
     setVoiceError("Audio is taking too long. Please try again.");
   };
 
@@ -1828,6 +1845,7 @@ export default function App() {
                 fontsLoaded={!!fontsLoaded}
                 onPlayAudio={(slow) => { void handleReplayAudio(slow); }}
                 isPlaying={isPlayingPronunciation}
+                isAudioPending={isAudioPending}
                 historyEntry={currentHistoryEntry}
               />
             </Animated.View>
@@ -2676,6 +2694,9 @@ const styles = StyleSheet.create({
   resPlayButtonActive: {
     backgroundColor: "#3B3530",
   },
+  resPlayButtonPending: {
+    opacity: 0.5,
+  },
   resPlayButtonText: {
     fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
     fontSize: 11,
@@ -2690,6 +2711,9 @@ const styles = StyleSheet.create({
     borderColor: TOKENS.ink,
     paddingVertical: 12,
     alignItems: "center",
+  },
+  resSlowButtonDisabled: {
+    opacity: 0.35,
   },
   resSlowButtonText: {
     fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
