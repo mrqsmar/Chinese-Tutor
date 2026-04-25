@@ -18,7 +18,7 @@ type Props = {
   onTypeInsteadSubmit: (text: string) => void;
 };
 
-const CantHearCard = ({ fontsLoaded, onTryAgain, onTypeInsteadSubmit }: Props) => {
+const NetworkErrorCard = ({ fontsLoaded, onTryAgain, onTypeInsteadSubmit }: Props) => {
   const [showSheet, setShowSheet] = useState(false);
   const [input, setInput] = useState("");
 
@@ -39,19 +39,16 @@ const CantHearCard = ({ fontsLoaded, onTryAgain, onTypeInsteadSubmit }: Props) =
 
   return (
     <View style={styles.wrap}>
-      {/* ── Text content ─────────────────────────────────── */}
       <View style={styles.textBlock}>
-        <Text style={styles.eyebrow}>— COULDN'T HEAR YOU</Text>
+        <Text style={styles.eyebrow}>— COULDN'T CONNECT</Text>
         <Text style={[styles.headline, frauncesMedItalic]}>
-          Try again, a little louder.
+          The server took too long to respond.
         </Text>
         <Text style={styles.body}>
-          Background noise, or your mic drifted. Hold the button and speak
-          directly toward your phone.
+          Check your connection and try again, or type your phrase instead.
         </Text>
       </View>
 
-      {/* ── Action buttons ───────────────────────────────── */}
       <View style={styles.buttons}>
         <Pressable style={styles.primaryBtn} onPress={onTryAgain}>
           <Text style={styles.primaryBtnText}>TRY AGAIN</Text>
@@ -61,7 +58,6 @@ const CantHearCard = ({ fontsLoaded, onTryAgain, onTypeInsteadSubmit }: Props) =
         </Pressable>
       </View>
 
-      {/* ── Type Instead bottom sheet ─────────────────────── */}
       <Modal
         visible={showSheet}
         transparent
@@ -118,7 +114,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 1.8,
     textTransform: "uppercase",
-    color: "#7A2D1E",
+    color: TOKENS.inkFaint,
     marginBottom: 18,
   },
   headline: {
@@ -163,7 +159,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     color: TOKENS.ink,
   },
-  // ── Sheet ────────────────────────────────────────────────────
   sheetOuter: {
     flex: 1,
     justifyContent: "flex-end",
@@ -216,4 +211,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CantHearCard;
+export default NetworkErrorCard;

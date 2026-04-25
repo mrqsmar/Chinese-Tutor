@@ -41,11 +41,14 @@ export const apiFetchWithTimeout = async (
   path: string,
   options: RequestInit,
   timeoutMs: number,
-  retryCount: number
+  retryCount: number,
+  externalSignal?: AbortSignal
 ) => {
   for (let attempt = 0; attempt <= retryCount; attempt += 1) {
+    if (externalSignal?.aborted) throw new DOMException("Aborted", "AbortError");
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    externalSignal?.addEventListener("abort", () => controller.abort(), { once: true });
     try {
       const response = await apiFetch(
         path,
@@ -56,6 +59,7 @@ export const apiFetchWithTimeout = async (
       return { response };
     } catch (error) {
       clearTimeout(timeoutId);
+      if (externalSignal?.aborted) throw error;
       const isTimeout =
         error instanceof Error && error.name === "AbortError";
       const isNetworkError =

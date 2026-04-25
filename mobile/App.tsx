@@ -17,9 +17,11 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Animated,
   Easing,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -32,11 +34,15 @@ import {
 
 import { useUIStore } from "./src/store/uiStore";
 import { useHistoryStore, useSavedStore } from "./src/store/historyStore";
+import type { HistoryEntry } from "./src/types/history";
 import { TOKENS, getToneColor, FONT_FAMILIES, detectTone, toneColor } from "./src/styles/tokens";
 
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
+import AudioErrorCard from "./src/components/AudioErrorCard";
 import CantHearCard from "./src/components/CantHearCard";
+import MicDeniedCard from "./src/components/MicDeniedCard";
+import NetworkErrorCard from "./src/components/NetworkErrorCard";
 import HistoryScreen from "./src/components/HistoryScreen";
 import LockScreen from "./src/components/LockScreen";
 import SavedScreen from "./src/components/SavedScreen";
@@ -179,13 +185,6 @@ type SpeechTurnResponse = {
   transcript_confidence?: number;
 };
 
-type VoiceExchange = {
-  id: string;
-  userTranscript: string;
-  tutorChinese: string;
-  tutorPinyin: string;
-  tutorEnglish: string;
-};
 
 type PracticeScenario = {
   id: "ordering_food" | "taking_taxi" | "meeting_someone_new";
@@ -439,9 +438,9 @@ const ShimmerSkeleton = ({
 
 // ─── Processing / translating screen ─────────────────────────────────────────
 
-type ProcessingViewProps = { processingTranscript: string; fontsLoaded: boolean };
+type ProcessingViewProps = { processingTranscript: string; fontsLoaded: boolean; onCancel: () => void };
 
-const ProcessingView = ({ processingTranscript, fontsLoaded }: ProcessingViewProps) => {
+const ProcessingView = ({ processingTranscript, fontsLoaded, onCancel }: ProcessingViewProps) => {
   const shimmerAnim = useRef(new Animated.Value(0)).current;
   const dot1 = useRef(new Animated.Value(0)).current;
   const dot2 = useRef(new Animated.Value(0)).current;
@@ -508,6 +507,10 @@ const ProcessingView = ({ processingTranscript, fontsLoaded }: ProcessingViewPro
         <ShimmerSkeleton height={14} shimmerAnim={shimmerAnim} />
         <ShimmerSkeleton height={14} shimmerAnim={shimmerAnim} />
       </View>
+
+      <Pressable onPress={onCancel} style={styles.cancelBtn} hitSlop={12}>
+        <Text style={styles.cancelBtnText}>✕  CANCEL</Text>
+      </Pressable>
     </View>
   );
 };
@@ -528,6 +531,12 @@ const ListeningView = ({ liveTranscript, meteringLevel, fontsLoaded }: Listening
   const caretBlink = useRef(new Animated.Value(1)).current;
   const dotPulse = useRef(new Animated.Value(1)).current;
   const meteringRef = useRef(meteringLevel);
+  const [keepHolding, setKeepHolding] = useState(true);
+
+  useEffect(() => {
+    const t = setTimeout(() => setKeepHolding(false), 800);
+    return () => clearTimeout(t);
+  }, []);
 
   useEffect(() => { meteringRef.current = meteringLevel; }, [meteringLevel]);
 
@@ -584,7 +593,7 @@ const ListeningView = ({ liveTranscript, meteringLevel, fontsLoaded }: Listening
             fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
           ]}
         >
-          {liveTranscript || "Listening…"}
+          {keepHolding ? "Keep holding…" : (liveTranscript || "Listening…")}
         </Text>
         <Animated.View style={[styles.transcriptCaret, { opacity: caretBlink }]} />
       </View>
@@ -611,19 +620,31 @@ const buildBreakdown = (chinese: string, pinyin: string): MorphemeEntry[] => {
 
 // ─── Response view ────────────────────────────────────────────────────────────
 
+const TONE_LEGEND = [
+  { tone: 1 as const, label: "1 flat" },
+  { tone: 2 as const, label: "2 rising" },
+  { tone: 3 as const, label: "3 dipping" },
+  { tone: 4 as const, label: "4 falling" },
+  { tone: 5 as const, label: "neutral" },
+];
+
 type ResponseViewProps = {
   turn: SpeechTurnResponse;
   fontsLoaded: boolean;
   onPlayAudio: (slow: boolean) => void;
   isPlaying: boolean;
+  isAudioPending: boolean;
+  historyEntry: HistoryEntry | null;
 };
 
-const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying }: ResponseViewProps) => {
+const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, isAudioPending, historyEntry }: ResponseViewProps) => {
   const frauncesItalic = fontsLoaded ? { fontFamily: FONT_FAMILIES.frauncesMediumItalic } : {};
   const notoSerif = fontsLoaded ? { fontFamily: FONT_FAMILIES.notoSerifMedium } : {};
   const spaceGrotesk = fontsLoaded ? { fontFamily: FONT_FAMILIES.spaceGroteskSemiBold } : {};
   const spaceGroteskBold = fontsLoaded ? { fontFamily: FONT_FAMILIES.spaceGroteskBold } : {};
   const breakdown = buildBreakdown(turn.chinese, turn.pinyin);
+  const { save: saveEntry, unsave: unsaveEntry, isSaved } = useSavedStore();
+  const saved = historyEntry ? isSaved(historyEntry.id) : false;
 
   return (
     <ScrollView
@@ -652,20 +673,48 @@ const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying }: ResponseVie
         ))}
       </View>
 
+      {/* 3b. Tone legend */}
+      <View style={styles.toneLegendRow}>
+        {TONE_LEGEND.map(({ tone, label }) => (
+          <Text key={tone} style={[styles.toneLegendItem, { color: getToneColor(tone) }]}>
+            ● {label}
+          </Text>
+        ))}
+      </View>
+
       {/* 4. English gloss */}
       <Text style={[styles.resGloss, frauncesItalic]}>"{turn.assistant_text}"</Text>
 
       {/* 5. Action row */}
       <View style={styles.resActionRow}>
         <Pressable
-          style={[styles.resPlayButton, isPlaying && styles.resPlayButtonActive]}
+          style={[
+            styles.resPlayButton,
+            isPlaying && styles.resPlayButtonActive,
+            isAudioPending && styles.resPlayButtonPending,
+          ]}
           onPress={() => onPlayAudio(false)}
+          disabled={isAudioPending || isPlaying}
         >
-          <Text style={styles.resPlayButtonText}>▶ PLAY AUDIO</Text>
+          <Text style={styles.resPlayButtonText}>
+            {isAudioPending ? "⋯ LOADING" : "▶ PLAY AUDIO"}
+          </Text>
         </Pressable>
-        <Pressable style={styles.resSlowButton} onPress={() => onPlayAudio(true)}>
+        <Pressable
+          style={[styles.resSlowButton, (isAudioPending || isPlaying) && styles.resSlowButtonDisabled]}
+          onPress={() => onPlayAudio(true)}
+          disabled={isAudioPending || isPlaying}
+        >
           <Text style={styles.resSlowButtonText}>½× SLOW</Text>
         </Pressable>
+        {historyEntry ? (
+          <Pressable
+            style={styles.resSaveButton}
+            onPress={() => saved ? unsaveEntry(historyEntry.id) : saveEntry(historyEntry, "GENERAL")}
+          >
+            <Text style={[styles.resSaveIcon, saved && styles.resSaveIconSaved]}>✦</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {/* 6. Horizontal rule */}
@@ -730,17 +779,18 @@ export default function App() {
     useState<MicPermissionState>("undetermined");
   const [isRecording, setIsRecording] = useState(false);
   const [isUploadingVoice, setIsUploadingVoice] = useState(false);
+  const [isAudioPending, setIsAudioPending] = useState(false);
   const [isPlayingPronunciation, setIsPlayingPronunciation] = useState(false);
   const [showVoiceComplete, setShowVoiceComplete] = useState(false);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [showTranslateError, setShowTranslateError] = useState(false);
+  const [showAudioError, setShowAudioError] = useState(false);
   const [showCantHear, setShowCantHear] = useState(false);
   const [voiceTurn, setVoiceTurn] = useState<SpeechTurnResponse | null>(null);
-  const [voiceHistory, setVoiceHistory] = useState<VoiceExchange[]>([]);
+  const [currentHistoryEntry, setCurrentHistoryEntry] = useState<HistoryEntry | null>(null);
   const [showScenarioPicker, setShowScenarioPicker] = useState(false);
   const [selectedScenario, setSelectedScenario] = useState<PracticeScenario | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<VoiceOption>("warm");
   const [showDrawer, setShowDrawer] = useState(false);
-  const [pendingQuery, setPendingQuery] = useState<string | null>(null);
   const [liveTranscript, setLiveTranscript] = useState("");
   const [meteringLevel, setMeteringLevel] = useState(-160);
   const [processingTranscript, setProcessingTranscript] = useState("");
@@ -762,6 +812,8 @@ export default function App() {
   const recordingRef = useRef<Audio.Recording | null>(null);
   const soundRef = useRef<Audio.Sound | null>(null);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceFetchControllerRef = useRef<AbortController | null>(null);
+  const userCancelledRef = useRef(false);
   const responseFade = useRef(new Animated.Value(0)).current;
   const stageTransition = useRef(new Animated.Value(0)).current;
   const ambientDriftA = useRef(new Animated.Value(0)).current;
@@ -889,8 +941,7 @@ export default function App() {
   const handleSwitchLanguage = async (next: SpeakerPreference) => {
     if (next === preference) return;
     setVoiceTurn(null);
-    setVoiceHistory([]);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
     setPreference(next);
     await AsyncStorage.setItem(STORAGE_KEY, next);
   };
@@ -899,8 +950,7 @@ export default function App() {
     setSelectedScenario(scenario);
     setShowScenarioPicker(false);
     setVoiceTurn(null);
-    setVoiceHistory([]);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
   };
 
   const handleLogin = async (username: string, password: string) => {
@@ -929,8 +979,7 @@ export default function App() {
   const handleLogout = async () => {
     await logout();
     setVoiceTurn(null);
-    setVoiceHistory([]);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
     setPreference(null);
     setIsLoadingPreference(true);
     setIsAuthenticated(false);
@@ -1009,14 +1058,13 @@ export default function App() {
   };
 
   const pollForAudioJob = async (jobId: string) => {
+    setIsAudioPending(true);
     const maxAttempts = 10;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       logApiBaseUrl(`Audio poll attempt ${attempt}`);
       const { response } = await apiFetchWithTimeout(
         `/v1/speech/audio/${jobId}`,
-        {
-          method: "GET",
-        },
+        { method: "GET" },
         30_000,
         0
       );
@@ -1024,7 +1072,8 @@ export default function App() {
       console.log("Audio poll status:", response.status);
       console.log("Audio poll response:", raw.slice(0, 500));
       if (!response.ok) {
-        setVoiceError("Audio fetch failed. Please try again.");
+        setIsAudioPending(false);
+        setShowAudioError(true);
         return;
       }
       const data = JSON.parse(raw) as {
@@ -1041,26 +1090,31 @@ export default function App() {
           base64: data.audio_base64 ?? undefined,
         };
         if (audioPayload.url || audioPayload.base64) {
+          setIsAudioPending(false);
           await playVoiceAudio(audioPayload, data.audio_mime ?? undefined);
           return;
         }
-        setVoiceError("Audio unavailable. Please try again.");
+        setIsAudioPending(false);
+        setShowAudioError(true);
         return;
       }
       if (data.status === "error") {
-        setVoiceError(data.tts_error ?? "Audio failed. Please try again.");
+        setIsAudioPending(false);
+        setShowAudioError(true);
         return;
       }
       await wait(1000);
     }
-    setVoiceError("Audio is taking too long. Please try again.");
+    setIsAudioPending(false);
+    setShowAudioError(true);
   };
 
   const handleTypeInsteadSubmit = async (text: string) => {
+    if (isRecording || isUploadingVoice) return;
     setShowCantHear(false);
     setIsUploadingVoice(true);
     setProcessingTranscript(text);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
     try {
       const formData = new FormData();
       formData.append("text", text);
@@ -1073,18 +1127,22 @@ export default function App() {
       formData.append("voice", selectedVoice);
 
       logApiBaseUrl("Text query");
+      const fetchController = new AbortController();
+      voiceFetchControllerRef.current = fetchController;
       const { response } = await apiFetchWithTimeout(
         "/v1/speech/turn",
         { method: "POST", body: formData },
         90_000,
-        1
+        1,
+        fetchController.signal
       );
+      voiceFetchControllerRef.current = null;
       const raw = await response.text();
       if (!response.ok) throw new Error(`Text query failed ${response.status}: ${raw}`);
 
       const data = JSON.parse(raw) as SpeechTurnResponse;
       setVoiceTurn(data);
-      addHistoryEntry({
+      const entryA: HistoryEntry = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         timestamp: Date.now(),
         transcript: data.transcript || text,
@@ -1093,17 +1151,9 @@ export default function App() {
         english: data.assistant_text,
         notes: data.notes ?? [],
         audioUrl: data.audio_url ?? null,
-      });
-      setVoiceHistory((previous) => [
-        ...previous.slice(-2),
-        {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          userTranscript: text,
-          tutorChinese: data.chinese,
-          tutorPinyin: data.pinyin,
-          tutorEnglish: data.assistant_text,
-        },
-      ]);
+      };
+      addHistoryEntry(entryA);
+      setCurrentHistoryEntry(entryA);
       setShowVoiceComplete(true);
       if (completeTimeoutRef.current) clearTimeout(completeTimeoutRef.current);
       completeTimeoutRef.current = setTimeout(() => {
@@ -1121,17 +1171,23 @@ export default function App() {
         } catch (playbackError) {
           console.error("Playback error:", playbackError);
           setIsPlayingPronunciation(false);
-          setVoiceError("Audio playback failed. Please check your volume and try again.");
+          setShowAudioError(true);
         }
       } else if (data.audio_pending && data.audio_job_id) {
         await pollForAudioJob(data.audio_job_id);
       } else {
-        setVoiceError(data.tts_error ?? "Audio unavailable. Please try again.");
+        setShowAudioError(true);
       }
     } catch (err) {
       console.error("Type-instead error:", err);
-      setVoiceError("Translation failed. Please try again.");
+      if (userCancelledRef.current) {
+        setProcessingTranscript("");
+        return;
+      }
+      setShowTranslateError(true);
     } finally {
+      userCancelledRef.current = false;
+      voiceFetchControllerRef.current = null;
       setIsUploadingVoice(false);
     }
   };
@@ -1169,24 +1225,24 @@ export default function App() {
     }
   };
 
+  const handleCancelTranslation = () => {
+    userCancelledRef.current = true;
+    voiceFetchControllerRef.current?.abort();
+  };
+
   const startRecording = async () => {
     if (isRecording || isUploadingVoice) {
       return;
     }
     const hasPermission = await ensureMicPermission();
-    if (!hasPermission) {
-      setVoiceError(
-        "Microphone access is required. Please enable it in system settings."
-      );
-      return;
-    }
+    if (!hasPermission) return;
     if (completeTimeoutRef.current) {
       clearTimeout(completeTimeoutRef.current);
       completeTimeoutRef.current = null;
     }
     setShowVoiceComplete(false);
     setShowCantHear(false);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
     if (soundRef.current) {
       await soundRef.current.stopAsync();
       await soundRef.current.unloadAsync();
@@ -1222,7 +1278,7 @@ export default function App() {
     setIsUploadingVoice(true);
     setShowVoiceComplete(false);
     setIsPlayingPronunciation(false);
-    setVoiceError(null);
+    setShowTranslateError(false); setShowAudioError(false);
     setProcessingTranscript(liveTranscript);
     setLiveTranscript("");
     setMeteringLevel(-160);
@@ -1238,8 +1294,9 @@ export default function App() {
       const fileSize = "size" in fileInfo ? fileInfo.size : undefined;
       console.log("Voice recording duration (ms):", status.durationMillis);
       console.log("Voice recording file size (bytes):", fileSize);
-      if (!status.durationMillis || status.durationMillis < 200) {
-        throw new Error("Recording too short. Please hold the button longer.");
+      if (!status.durationMillis || status.durationMillis < 800) {
+        setShowCantHear(true);
+        return;
       }
       const formData = new FormData();
       formData.append("audio", {
@@ -1257,6 +1314,8 @@ export default function App() {
 
       logApiBaseUrl("Voice upload");
       const startedAt = Date.now();
+      const fetchController = new AbortController();
+      voiceFetchControllerRef.current = fetchController;
       const { response } = await apiFetchWithTimeout(
         "/v1/speech/turn",
         {
@@ -1264,8 +1323,10 @@ export default function App() {
           body: formData,
         },
         90_000,
-        1
+        1,
+        fetchController.signal
       );
+      voiceFetchControllerRef.current = null;
 
       const durationMs = Date.now() - startedAt;
       const raw = await response.text();
@@ -1290,7 +1351,7 @@ export default function App() {
       }
 
       setVoiceTurn(data);
-      addHistoryEntry({
+      const entryB: HistoryEntry = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         timestamp: Date.now(),
         transcript: data.transcript,
@@ -1299,17 +1360,9 @@ export default function App() {
         english: data.assistant_text,
         notes: data.notes ?? [],
         audioUrl: data.audio_url ?? null,
-      });
-      setVoiceHistory((previous) => [
-        ...previous.slice(-2),
-        {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          userTranscript: data.transcript,
-          tutorChinese: data.chinese,
-          tutorPinyin: data.pinyin,
-          tutorEnglish: data.assistant_text,
-        },
-      ]);
+      };
+      addHistoryEntry(entryB);
+      setCurrentHistoryEntry(entryB);
       setShowVoiceComplete(true);
       if (completeTimeoutRef.current) {
         clearTimeout(completeTimeoutRef.current);
@@ -1329,32 +1382,29 @@ export default function App() {
         } catch (playbackError) {
           console.error("Voice playback error:", playbackError);
           setIsPlayingPronunciation(false);
-          setVoiceError(
-            "Audio playback failed. Please check your volume and try again."
-          );
+          setShowAudioError(true);
         }
       } else if (data.audio_pending && data.audio_job_id) {
         await pollForAudioJob(data.audio_job_id);
       } else {
-        setVoiceError(data.tts_error ?? "Audio unavailable. Please try again.");
+        setShowAudioError(true);
       }
     } catch (voiceUploadError) {
       console.error("Voice upload error:", voiceUploadError);
+      if (userCancelledRef.current) {
+        setProcessingTranscript("");
+        return;
+      }
       const errMsg =
         voiceUploadError instanceof Error ? voiceUploadError.message : "";
       const isTimeout =
         voiceUploadError instanceof Error &&
         (voiceUploadError.name === "AbortError" ||
           errMsg.toLowerCase().includes("timed out"));
-      const isTooShort = errMsg.includes("Recording too short");
-      setVoiceError(
-        isTooShort
-          ? errMsg
-          : isTimeout
-            ? "Voice request timed out. Please try again."
-            : "Voice request failed. Please try again."
-      );
+      setShowTranslateError(true);
     } finally {
+      userCancelledRef.current = false;
+      voiceFetchControllerRef.current = null;
       setIsUploadingVoice(false);
     }
   };
@@ -1409,6 +1459,17 @@ export default function App() {
       }
     };
   }, []);
+
+  // Re-check mic permission when the user returns from the system Settings app.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", async (nextState) => {
+      if (nextState === "active" && micPermission === "denied") {
+        const result = await Audio.getPermissionsAsync();
+        if (result.granted) setMicPermission("granted");
+      }
+    });
+    return () => sub.remove();
+  }, [micPermission]);
 
   useEffect(() => {
     ambientDriftA.setValue(0);
@@ -1636,13 +1697,9 @@ export default function App() {
           </View>
         </Animated.View>
 
-        {error || voiceError || micPermission === "denied" ? (
+        {error ? (
           <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>
-              {micPermission === "denied"
-                ? "Microphone access is disabled. Enable it in system settings."
-                : voiceError ?? error}
-            </Text>
+            <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
 
@@ -1651,96 +1708,27 @@ export default function App() {
         ) : activeTab === "SAVED" ? (
           <SavedScreen fontsLoaded={!!fontsLoaded} />
         ) : null}
-        {activeTab === "SPEAK" && showCantHear ? (
+        {activeTab === "SPEAK" && micPermission === "denied" ? (
+          <MicDeniedCard
+            fontsLoaded={!!fontsLoaded}
+            onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
+          />
+        ) : null}
+        {activeTab === "SPEAK" && micPermission !== "denied" && showCantHear ? (
           <CantHearCard
             fontsLoaded={!!fontsLoaded}
             onTryAgain={() => setShowCantHear(false)}
             onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
           />
         ) : null}
-        {activeTab === "SPEAK" && !showCantHear ? <View style={styles.centerStage}>
-          <View style={styles.practiceScenarioWrap}>
-            <Pressable
-              style={[
-                styles.practiceScenarioButton,
-                {
-                  backgroundColor: activeTheme.surfaceTint,
-                  borderColor: activeTheme.surfaceBorder,
-                },
-              ]}
-              onPress={() => setShowScenarioPicker((previous) => !previous)}
-            >
-              <Text style={[styles.practiceScenarioButtonText, { color: activeTheme.titleText }]}>
-                {selectedScenario
-                  ? `Practice Scenario: ${selectedScenario.title}`
-                  : "Practice Scenario"}
-              </Text>
-              <Text style={[styles.practiceScenarioButtonHint, { color: activeTheme.subtitleText }]}>
-                {showScenarioPicker ? "Hide options" : "Choose a conversation context"}
-              </Text>
-            </Pressable>
-
-            {showScenarioPicker ? (
-              <View style={styles.practiceScenarioCards}>
-                {PRACTICE_SCENARIOS.map((scenario) => {
-                  const isActive = selectedScenario?.id === scenario.id;
-                  return (
-                    <Pressable
-                      key={scenario.id}
-                      style={[
-                        styles.practiceScenarioCard,
-                        {
-                          backgroundColor: activeTheme.surfaceTint,
-                          borderColor: activeTheme.surfaceBorder,
-                        },
-                        isActive && {
-                          borderColor: activeTheme.messageAccentText,
-                        },
-                      ]}
-                      onPress={() => handleSelectScenario(scenario)}
-                    >
-                      <Text style={[styles.practiceScenarioCardTitle, { color: activeTheme.titleText }]}>
-                        {scenario.title}
-                      </Text>
-                      <Text style={[styles.practiceScenarioCardDescription, { color: activeTheme.subtitleText }]}>
-                        {scenario.description}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
-          </View>
-
-          {selectedScenario ? (
-            <View
-              style={[
-                styles.relevantVocabPanel,
-                {
-                  backgroundColor: activeTheme.surfaceTint,
-                  borderColor: activeTheme.surfaceBorder,
-                },
-              ]}
-            >
-              <Text style={[styles.relevantVocabTitle, { color: activeTheme.titleText }]}>
-                Relevant vocab · {selectedScenario.title}
-              </Text>
-              {selectedScenario.vocab.map((word) => (
-                <View key={`${selectedScenario.id}-${word.chinese}`} style={styles.relevantVocabRow}>
-                  <Text style={[styles.relevantVocabChinese, { color: activeTheme.titleText }]}>
-                    {word.chinese}
-                  </Text>
-                  <Text style={[styles.relevantVocabPinyin, { color: activeTheme.messageAccentText }]}>
-                    {word.pinyin}
-                  </Text>
-                  <Text style={[styles.relevantVocabEnglish, { color: activeTheme.subtitleText }]}>
-                    {word.english}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-
+        {activeTab === "SPEAK" && micPermission !== "denied" && showTranslateError ? (
+          <NetworkErrorCard
+            fontsLoaded={!!fontsLoaded}
+            onTryAgain={() => setShowTranslateError(false)}
+            onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
+          />
+        ) : null}
+        {activeTab === "SPEAK" && micPermission !== "denied" && !showCantHear && !showTranslateError ? <View style={styles.centerStage}>
           {isRecording ? (
             <ListeningView
               liveTranscript={liveTranscript}
@@ -1751,6 +1739,12 @@ export default function App() {
             <ProcessingView
               processingTranscript={processingTranscript}
               fontsLoaded={!!fontsLoaded}
+              onCancel={handleCancelTranslation}
+            />
+          ) : voiceTurn && showAudioError ? (
+            <AudioErrorCard
+              fontsLoaded={!!fontsLoaded}
+              onShowText={() => setShowAudioError(false)}
             />
           ) : voiceTurn ? (
             <Animated.View style={{ opacity: responseFade, alignSelf: "stretch" }}>
@@ -1759,6 +1753,8 @@ export default function App() {
                 fontsLoaded={!!fontsLoaded}
                 onPlayAudio={(slow) => { void handleReplayAudio(slow); }}
                 isPlaying={isPlayingPronunciation}
+                isAudioPending={isAudioPending}
+                historyEntry={currentHistoryEntry}
               />
             </Animated.View>
           ) : (
@@ -1800,13 +1796,12 @@ export default function App() {
                 <Pressable
                   key={s}
                   style={styles.suggestionRow}
-                  onPress={() => setPendingQuery(pendingQuery === s ? null : s)}
+                  onPress={() => { void handleTypeInsteadSubmit(s); }}
                 >
                   <Text
                     style={[
                       styles.suggestionText,
                       fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
-                      pendingQuery === s && styles.suggestionTextActive,
                     ]}
                   >
                     "{s}"
@@ -1816,21 +1811,6 @@ export default function App() {
               ))}
             </View>
           )}
-
-          {/* Pending query prompt — shown when a suggestion is tapped */}
-          {!isRecording && !voiceTurn && pendingQuery ? (
-            <View style={styles.pendingQueryWrap}>
-              <Text style={styles.pendingQueryLabel}>SAY SOMETHING LIKE</Text>
-              <Text
-                style={[
-                  styles.pendingQueryText,
-                  fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
-                ]}
-              >
-                "{pendingQuery}"
-              </Text>
-            </View>
-          ) : null}
 
           <Animated.View
             style={[
@@ -1851,75 +1831,10 @@ export default function App() {
               onPressOut={() => {
                 void stopRecording();
               }}
-              disabled={isUploadingVoice || micPermission === "denied"}
+              disabled={isUploadingVoice}
             />
           </Animated.View>
 
-          {voiceHistory.length ? (
-            <View style={styles.voiceHistoryWrap}>
-              {voiceHistory.map((exchange) => (
-                <View
-                  key={exchange.id}
-                  style={[
-                    styles.voiceHistoryBubble,
-                    {
-                      backgroundColor: activeTheme.surfaceTint,
-                      borderColor: activeTheme.surfaceBorder,
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.voiceHistoryUserLabel,
-                      { color: activeTheme.voiceSupportText },
-                    ]}
-                  >
-                    You said
-                  </Text>
-                  <Text
-                    style={[
-                      styles.voiceHistoryUserText,
-                      { color: activeTheme.titleText },
-                    ]}
-                  >
-                    {exchange.userTranscript}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.voiceHistoryTutorLabel,
-                      { color: activeTheme.voiceSupportText },
-                    ]}
-                  >
-                    Tutor replied
-                  </Text>
-                  <Text
-                    style={[
-                      styles.voiceHistoryTutorChinese,
-                      { color: activeTheme.titleText },
-                    ]}
-                  >
-                    {exchange.tutorChinese}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.voiceHistoryTutorPinyin,
-                      { color: activeTheme.messageAccentText },
-                    ]}
-                  >
-                    {exchange.tutorPinyin}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.voiceHistoryTutorEnglish,
-                      { color: activeTheme.subtitleText },
-                    ]}
-                  >
-                    {exchange.tutorEnglish}
-                  </Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
         </View> : null}
       </KeyboardAvoidingView>
       <Modal
@@ -1930,18 +1845,98 @@ export default function App() {
       >
         <Pressable style={styles.drawerOverlay} onPress={() => setShowDrawer(false)}>
           <View style={styles.drawerPanel}>
-            {DEMO_MODE || CHATBOT_ONLY_MODE || !REQUIRE_AUTH ? (
-              <Text style={styles.drawerEmpty}>Settings coming soon</Text>
-            ) : (
-              <Pressable
-                onPress={() => {
-                  setShowDrawer(false);
-                  void handleLogout();
-                }}
+            <Text style={styles.drawerSectionLabel}>PRACTICE SCENARIO</Text>
+            <Pressable
+              style={[
+                styles.practiceScenarioButton,
+                {
+                  backgroundColor: activeTheme.surfaceTint,
+                  borderColor: activeTheme.surfaceBorder,
+                },
+              ]}
+              onPress={() => setShowScenarioPicker((previous) => !previous)}
+            >
+              <Text style={[styles.practiceScenarioButtonText, { color: activeTheme.titleText }]}>
+                {selectedScenario ? selectedScenario.title : "None selected"}
+              </Text>
+              <Text style={[styles.practiceScenarioButtonHint, { color: activeTheme.subtitleText }]}>
+                {showScenarioPicker ? "Hide options" : "Choose a conversation context"}
+              </Text>
+            </Pressable>
+
+            {showScenarioPicker ? (
+              <View style={styles.practiceScenarioCards}>
+                {PRACTICE_SCENARIOS.map((scenario) => {
+                  const isActive = selectedScenario?.id === scenario.id;
+                  return (
+                    <Pressable
+                      key={scenario.id}
+                      style={[
+                        styles.practiceScenarioCard,
+                        {
+                          backgroundColor: activeTheme.surfaceTint,
+                          borderColor: activeTheme.surfaceBorder,
+                        },
+                        isActive && {
+                          borderColor: activeTheme.messageAccentText,
+                        },
+                      ]}
+                      onPress={() => handleSelectScenario(scenario)}
+                    >
+                      <Text style={[styles.practiceScenarioCardTitle, { color: activeTheme.titleText }]}>
+                        {scenario.title}
+                      </Text>
+                      <Text style={[styles.practiceScenarioCardDescription, { color: activeTheme.subtitleText }]}>
+                        {scenario.description}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            {selectedScenario ? (
+              <View
+                style={[
+                  styles.relevantVocabPanel,
+                  {
+                    backgroundColor: activeTheme.surfaceTint,
+                    borderColor: activeTheme.surfaceBorder,
+                  },
+                ]}
               >
-                <Text style={styles.drawerItem}>Logout</Text>
-              </Pressable>
-            )}
+                <Text style={[styles.relevantVocabTitle, { color: activeTheme.titleText }]}>
+                  Vocab · {selectedScenario.title}
+                </Text>
+                {selectedScenario.vocab.map((word) => (
+                  <View key={`${selectedScenario.id}-${word.chinese}`} style={styles.relevantVocabRow}>
+                    <Text style={[styles.relevantVocabChinese, { color: activeTheme.titleText }]}>
+                      {word.chinese}
+                    </Text>
+                    <Text style={[styles.relevantVocabPinyin, { color: activeTheme.messageAccentText }]}>
+                      {word.pinyin}
+                    </Text>
+                    <Text style={[styles.relevantVocabEnglish, { color: activeTheme.subtitleText }]}>
+                      {word.english}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            {!DEMO_MODE && !CHATBOT_ONLY_MODE && REQUIRE_AUTH ? (
+              <>
+                <View style={styles.drawerDivider} />
+                <Pressable
+                  onPress={() => {
+                    setShowDrawer(false);
+                    void handleLogout();
+                  }}
+                >
+                  <Text style={styles.drawerItem}>Logout</Text>
+                </Pressable>
+              </>
+            ) : null}
           </View>
         </Pressable>
       </Modal>
@@ -1960,7 +1955,7 @@ const styles = StyleSheet.create({
   },
   practiceScenarioButton: {
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: TOKENS.buttonRadius,
     paddingHorizontal: 14,
     paddingVertical: 12,
     gap: 4,
@@ -1979,7 +1974,7 @@ const styles = StyleSheet.create({
   },
   practiceScenarioCard: {
     borderWidth: 1,
-    borderRadius: 14,
+    borderRadius: TOKENS.cardRadius,
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
@@ -1995,7 +1990,7 @@ const styles = StyleSheet.create({
   relevantVocabPanel: {
     width: "100%",
     borderWidth: 1,
-    borderRadius: 16,
+    borderRadius: TOKENS.cardRadius,
     paddingHorizontal: 14,
     paddingVertical: 12,
     marginBottom: 14,
@@ -2192,15 +2187,28 @@ const styles = StyleSheet.create({
     backgroundColor: "#FDFAF6",
     marginTop: 88,
     marginRight: 16,
-    borderRadius: 12,
-    paddingVertical: 12,
+    marginLeft: 16,
+    borderRadius: TOKENS.cardRadius,
+    paddingVertical: 16,
     paddingHorizontal: 16,
-    minWidth: 180,
     shadowColor: "#000",
     shadowOpacity: 0.12,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
     elevation: 8,
+  },
+  drawerSectionLabel: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 10,
+    letterSpacing: 1.6,
+    textTransform: "uppercase",
+    color: TOKENS.inkFaint,
+    marginBottom: 10,
+  },
+  drawerDivider: {
+    height: 1,
+    backgroundColor: TOKENS.rule,
+    marginVertical: 12,
   },
   drawerItem: {
     fontSize: 15,
@@ -2263,6 +2271,18 @@ const styles = StyleSheet.create({
   },
   skeletonGroup: {
     gap: 10,
+  },
+  cancelBtn: {
+    alignSelf: "center",
+    marginTop: 32,
+    padding: 12,
+  },
+  cancelBtnText: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 11,
+    letterSpacing: 1.8,
+    textTransform: "uppercase",
+    color: "#8F8578",
   },
   skeletonBar: {
     alignSelf: "stretch",
@@ -2384,31 +2404,10 @@ const styles = StyleSheet.create({
     color: "#15110D",
     flex: 1,
   },
-  suggestionTextActive: {
-    color: "#1D4D3B",
-  },
   suggestionChevron: {
     fontSize: 18,
     color: "#8F8578",
     marginLeft: 8,
-  },
-  pendingQueryWrap: {
-    alignItems: "center",
-    paddingVertical: 10,
-  },
-  pendingQueryLabel: {
-    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
-    fontSize: 9,
-    letterSpacing: 1.6,
-    textTransform: "uppercase",
-    color: "#8F8578",
-    marginBottom: 4,
-  },
-  pendingQueryText: {
-    fontSize: 15,
-    fontStyle: "italic",
-    color: "#1D4D3B",
-    textAlign: "center",
   },
   dailyPhrase: {
     alignItems: "center",
@@ -2432,7 +2431,7 @@ const styles = StyleSheet.create({
   voiceResultCenter: {
     alignItems: "center",
     marginBottom: 48,
-    borderRadius: 20,
+    borderRadius: TOKENS.cardRadius,
     borderWidth: 1,
     paddingHorizontal: 24,
     paddingVertical: 20,
@@ -2465,50 +2464,6 @@ const styles = StyleSheet.create({
   micStageWrap: {
     alignItems: "center",
   },
-  voiceHistoryWrap: {
-    width: "100%",
-    marginTop: 14,
-    gap: 10,
-  },
-  voiceHistoryBubble: {
-    borderWidth: 1,
-    borderRadius: 18,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-  },
-  voiceHistoryUserLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  voiceHistoryUserText: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginTop: 3,
-  },
-  voiceHistoryTutorLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginTop: 10,
-  },
-  voiceHistoryTutorChinese: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginTop: 4,
-  },
-  voiceHistoryTutorPinyin: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginTop: 2,
-  },
-  voiceHistoryTutorEnglish: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: 2,
-  },
   errorBanner: {
     backgroundColor: "#FEE2E2",
     paddingHorizontal: 16,
@@ -2528,7 +2483,7 @@ const styles = StyleSheet.create({
   },
   onboardingCard: {
     backgroundColor: "#FFF7ED",
-    borderRadius: 20,
+    borderRadius: TOKENS.cardRadius,
     padding: 24,
     width: "100%",
     maxWidth: 420,
@@ -2554,7 +2509,7 @@ const styles = StyleSheet.create({
   onboardingButton: {
     backgroundColor: "#B91C1C",
     paddingVertical: 12,
-    borderRadius: 18,
+    borderRadius: TOKENS.buttonRadius,
     alignItems: "center",
     marginBottom: 12,
   },
@@ -2609,6 +2564,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  toneLegendRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginBottom: 14,
+  },
+  toneLegendItem: {
+    fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
+    fontSize: 9,
+    letterSpacing: 1.2,
+  },
   resGloss: {
     fontSize: 17,
     fontStyle: "italic",
@@ -2624,12 +2590,15 @@ const styles = StyleSheet.create({
   resPlayButton: {
     flex: 2,
     backgroundColor: TOKENS.ink,
-    borderRadius: 2,
+    borderRadius: TOKENS.buttonRadius,
     paddingVertical: 12,
     alignItems: "center",
   },
   resPlayButtonActive: {
     backgroundColor: "#3B3530",
+  },
+  resPlayButtonPending: {
+    opacity: 0.5,
   },
   resPlayButtonText: {
     fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
@@ -2640,17 +2609,36 @@ const styles = StyleSheet.create({
   },
   resSlowButton: {
     flex: 1,
-    borderRadius: 2,
+    borderRadius: TOKENS.buttonRadius,
     borderWidth: 1.5,
     borderColor: TOKENS.ink,
     paddingVertical: 12,
     alignItems: "center",
+  },
+  resSlowButtonDisabled: {
+    opacity: 0.35,
   },
   resSlowButtonText: {
     fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
     fontSize: 11,
     letterSpacing: 1.2,
     color: TOKENS.ink,
+  },
+  resSaveButton: {
+    borderRadius: TOKENS.buttonRadius,
+    borderWidth: 1.5,
+    borderColor: TOKENS.ink,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resSaveIcon: {
+    fontSize: 16,
+    color: TOKENS.inkFaint,
+  },
+  resSaveIconSaved: {
+    color: TOKENS.accent,
   },
   resRule: {
     height: 1,

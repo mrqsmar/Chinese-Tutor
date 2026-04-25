@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -14,11 +15,10 @@ import { FONT_FAMILIES, TOKENS } from "../styles/tokens";
 
 type Props = {
   fontsLoaded: boolean;
-  onTryAgain: () => void;
   onTypeInsteadSubmit: (text: string) => void;
 };
 
-const CantHearCard = ({ fontsLoaded, onTryAgain, onTypeInsteadSubmit }: Props) => {
+const MicDeniedCard = ({ fontsLoaded, onTypeInsteadSubmit }: Props) => {
   const [showSheet, setShowSheet] = useState(false);
   const [input, setInput] = useState("");
 
@@ -41,20 +41,20 @@ const CantHearCard = ({ fontsLoaded, onTryAgain, onTypeInsteadSubmit }: Props) =
     <View style={styles.wrap}>
       {/* ── Text content ─────────────────────────────────── */}
       <View style={styles.textBlock}>
-        <Text style={styles.eyebrow}>— COULDN'T HEAR YOU</Text>
+        <Text style={styles.eyebrow}>— MIC ACCESS NEEDED</Text>
         <Text style={[styles.headline, frauncesMedItalic]}>
-          Try again, a little louder.
+          Allow microphone access to start speaking.
         </Text>
         <Text style={styles.body}>
-          Background noise, or your mic drifted. Hold the button and speak
-          directly toward your phone.
+          Chinese Tutor needs mic access to hear you. It's used only while
+          you're holding the button.
         </Text>
       </View>
 
       {/* ── Action buttons ───────────────────────────────── */}
       <View style={styles.buttons}>
-        <Pressable style={styles.primaryBtn} onPress={onTryAgain}>
-          <Text style={styles.primaryBtnText}>TRY AGAIN</Text>
+        <Pressable style={styles.primaryBtn} onPress={() => void Linking.openSettings()}>
+          <Text style={styles.primaryBtnText}>OPEN SETTINGS</Text>
         </Pressable>
         <Pressable style={styles.secondaryBtn} onPress={() => setShowSheet(true)}>
           <Text style={styles.secondaryBtnText}>TYPE INSTEAD</Text>
@@ -118,7 +118,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     letterSpacing: 1.8,
     textTransform: "uppercase",
-    color: "#7A2D1E",
+    color: TOKENS.accent,
     marginBottom: 18,
   },
   headline: {
@@ -216,4 +216,4 @@ const styles = StyleSheet.create({
   },
 });
 
-export default CantHearCard;
+export default MicDeniedCard;
