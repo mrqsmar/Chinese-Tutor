@@ -17,9 +17,11 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  AppState,
   Animated,
   Easing,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -37,6 +39,7 @@ import { TOKENS, getToneColor, FONT_FAMILIES, detectTone, toneColor } from "./sr
 import ApiBlockedScreen from "./src/components/ApiBlockedScreen";
 import AuthScreen from "./src/components/AuthScreen";
 import CantHearCard from "./src/components/CantHearCard";
+import MicDeniedCard from "./src/components/MicDeniedCard";
 import HistoryScreen from "./src/components/HistoryScreen";
 import LockScreen from "./src/components/LockScreen";
 import SavedScreen from "./src/components/SavedScreen";
@@ -1441,6 +1444,17 @@ export default function App() {
     };
   }, []);
 
+  // Re-check mic permission when the user returns from the system Settings app.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", async (nextState) => {
+      if (nextState === "active" && micPermission === "denied") {
+        const result = await Audio.getPermissionsAsync();
+        if (result.granted) setMicPermission("granted");
+      }
+    });
+    return () => sub.remove();
+  }, [micPermission]);
+
   useEffect(() => {
     ambientDriftA.setValue(0);
     ambientDriftB.setValue(0);
@@ -1667,13 +1681,9 @@ export default function App() {
           </View>
         </Animated.View>
 
-        {error || voiceError || micPermission === "denied" ? (
+        {error || voiceError ? (
           <View style={styles.errorBanner}>
-            <Text style={styles.errorText}>
-              {micPermission === "denied"
-                ? "Microphone access is disabled. Enable it in system settings."
-                : voiceError ?? error}
-            </Text>
+            <Text style={styles.errorText}>{voiceError ?? error}</Text>
           </View>
         ) : null}
 
@@ -1682,14 +1692,20 @@ export default function App() {
         ) : activeTab === "SAVED" ? (
           <SavedScreen fontsLoaded={!!fontsLoaded} />
         ) : null}
-        {activeTab === "SPEAK" && showCantHear ? (
+        {activeTab === "SPEAK" && micPermission === "denied" ? (
+          <MicDeniedCard
+            fontsLoaded={!!fontsLoaded}
+            onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
+          />
+        ) : null}
+        {activeTab === "SPEAK" && micPermission !== "denied" && showCantHear ? (
           <CantHearCard
             fontsLoaded={!!fontsLoaded}
             onTryAgain={() => setShowCantHear(false)}
             onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
           />
         ) : null}
-        {activeTab === "SPEAK" && !showCantHear ? <View style={styles.centerStage}>
+        {activeTab === "SPEAK" && micPermission !== "denied" && !showCantHear ? <View style={styles.centerStage}>
           <View style={styles.practiceScenarioWrap}>
             <Pressable
               style={[
@@ -1867,7 +1883,7 @@ export default function App() {
               onPressOut={() => {
                 void stopRecording();
               }}
-              disabled={isUploadingVoice || micPermission === "denied"}
+              disabled={isUploadingVoice}
             />
           </Animated.View>
 
