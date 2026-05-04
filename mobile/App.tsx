@@ -106,11 +106,18 @@ const getDailyPhrase = () => {
   return DAILY_PHRASES[dayOfYear % DAILY_PHRASES.length];
 };
 
-const SUGGESTIONS = [
-  "How do I order three siu mai?",
-  "Ask someone out for dinner",
-  "A polite way to decline",
-];
+const SUGGESTIONS = {
+  english: [
+    "How do I order three siu mai?",
+    "Ask someone out for dinner",
+    "A polite way to decline",
+  ],
+  chinese: [
+    "用英文怎么说“我想点三份烧卖”？",
+    "用英文怎么邀请别人一起吃晚饭？",
+    "怎么礼貌地用英文拒绝？",
+  ],
+} as const;
 
 const isTruthy = (value: string | undefined) =>
   ["1", "true", "yes", "on"].includes((value ?? "").toLowerCase());
@@ -167,6 +174,12 @@ type SpeechTurnAudio = {
   base64?: string;
 };
 
+type SpeechTurnBreakdownItem = {
+  text: string;
+  pronunciation: string;
+  gloss: string;
+};
+
 type SpeechTurnResponse = {
   assistant_text: string;
   transcript: string;
@@ -174,6 +187,7 @@ type SpeechTurnResponse = {
   chinese: string;
   pinyin: string;
   notes: string[];
+  breakdown?: SpeechTurnBreakdownItem[];
   audio?: SpeechTurnAudio | null;
   audio_url?: string | null;
   audio_base64?: string | null;
@@ -610,12 +624,42 @@ const ListeningView = ({ liveTranscript, meteringLevel, fontsLoaded }: Listening
 
 // Tone utilities re-exported from tokens — detectTone, toneColor, getToneColor.
 
-type MorphemeEntry = { hanzi: string; pinyin: string };
+type MorphemeEntry = { text: string; pronunciation: string; gloss: string };
 
-const buildBreakdown = (chinese: string, pinyin: string): MorphemeEntry[] => {
+const isChineseChar = (char: string) => /[㐀-鿿]/.test(char);
+
+const hasCharacterLevelBreakdown = (
+  chinese: string,
+  providedBreakdown?: SpeechTurnBreakdownItem[] | null
+) => {
+  const chineseChars = [...chinese].filter((char) => isChineseChar(char));
+  if (!providedBreakdown?.length || providedBreakdown.length !== chineseChars.length) {
+    return false;
+  }
+  return providedBreakdown.every(
+    (item) => [...item.text].filter((char) => isChineseChar(char)).length === 1
+  );
+};
+
+const buildBreakdown = (
+  chinese: string,
+  pinyin: string,
+  providedBreakdown?: SpeechTurnBreakdownItem[] | null
+): MorphemeEntry[] => {
+  if (hasCharacterLevelBreakdown(chinese, providedBreakdown)) {
+    return (providedBreakdown ?? []).map((item) => ({
+      text: item.text,
+      pronunciation: item.pronunciation || "·",
+      gloss: item.gloss || "",
+    }));
+  }
   const chars = [...chinese].filter((c) => /[㐀-鿿]/.test(c));
   const syllables = pinyin.trim().split(/\s+/);
-  return chars.map((hanzi, i) => ({ hanzi, pinyin: syllables[i] ?? "·" }));
+  return chars.map((text, i) => ({
+    text,
+    pronunciation: syllables[i] ?? "·",
+    gloss: "",
+  }));
 };
 
 // ─── Response view ────────────────────────────────────────────────────────────
@@ -635,16 +679,43 @@ type ResponseViewProps = {
   isPlaying: boolean;
   isAudioPending: boolean;
   historyEntry: HistoryEntry | null;
+  preference: SpeakerPreference;
 };
 
-const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, isAudioPending, historyEntry }: ResponseViewProps) => {
+const ResponseView = ({
+  turn,
+  fontsLoaded,
+  onPlayAudio,
+  isPlaying,
+  isAudioPending,
+  historyEntry,
+  preference,
+}: ResponseViewProps) => {
   const frauncesItalic = fontsLoaded ? { fontFamily: FONT_FAMILIES.frauncesMediumItalic } : {};
   const notoSerif = fontsLoaded ? { fontFamily: FONT_FAMILIES.notoSerifMedium } : {};
   const spaceGrotesk = fontsLoaded ? { fontFamily: FONT_FAMILIES.spaceGroteskSemiBold } : {};
   const spaceGroteskBold = fontsLoaded ? { fontFamily: FONT_FAMILIES.spaceGroteskBold } : {};
-  const breakdown = buildBreakdown(turn.chinese, turn.pinyin);
+  const breakdown = buildBreakdown(turn.chinese, turn.pinyin, turn.breakdown);
   const { save: saveEntry, unsave: unsaveEntry, isSaved } = useSavedStore();
   const saved = historyEntry ? isSaved(historyEntry.id) : false;
+  const copy =
+    preference === "chinese"
+      ? {
+          asked: "你说",
+          play: "▶ 播放发音",
+          loading: "⋯ 加载中",
+          slow: "½× 慢速",
+          breakdown: "发音提示",
+          pronunciation: "你的发音",
+        }
+      : {
+          asked: "YOU ASKED",
+          play: "▶ PLAY AUDIO",
+          loading: "⋯ LOADING",
+          slow: "½× SLOW",
+          breakdown: "BREAKDOWN",
+          pronunciation: "YOUR PRONUNCIATION",
+        };
 
   return (
     <ScrollView
@@ -656,7 +727,7 @@ const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, isAudioPendin
       {/* 1. YOU ASKED eyebrow + user transcript */}
       {turn.transcript ? (
         <View style={styles.resYouAskedBlock}>
-          <Text style={styles.resEyebrow}>YOU ASKED</Text>
+          <Text style={styles.resEyebrow}>{copy.asked}</Text>
           <Text style={[styles.resYouAskedText, frauncesItalic]}>"{turn.transcript}"</Text>
         </View>
       ) : null}
@@ -697,7 +768,7 @@ const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, isAudioPendin
           disabled={isAudioPending || isPlaying}
         >
           <Text style={styles.resPlayButtonText}>
-            {isAudioPending ? "⋯ LOADING" : "▶ PLAY AUDIO"}
+            {isAudioPending ? copy.loading : copy.play}
           </Text>
         </Pressable>
         <Pressable
@@ -705,7 +776,7 @@ const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, isAudioPendin
           onPress={() => onPlayAudio(true)}
           disabled={isAudioPending || isPlaying}
         >
-          <Text style={styles.resSlowButtonText}>½× SLOW</Text>
+          <Text style={styles.resSlowButtonText}>{copy.slow}</Text>
         </Pressable>
         {historyEntry ? (
           <Pressable
@@ -723,15 +794,16 @@ const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, isAudioPendin
       {/* 7. BREAKDOWN */}
       {breakdown.length > 0 ? (
         <>
-          <Text style={[styles.resEyebrow, { marginBottom: 4 }]}>BREAKDOWN</Text>
-          {breakdown.map(({ hanzi, pinyin }, i) => (
+          <Text style={[styles.resEyebrow, { marginBottom: 4 }]}>{copy.breakdown}</Text>
+          {breakdown.map(({ text, pronunciation, gloss }, i) => (
             <View key={i}>
               {i > 0 && <View style={styles.resMorphemeRule} />}
               <View style={styles.resMorphemeRow}>
-                <Text style={[styles.resMorphemeHanzi, notoSerif]}>{hanzi}</Text>
-                <Text style={[styles.resMorphemePinyin, spaceGrotesk, { color: toneColor(pinyin) }]}>
-                  {pinyin}
+                <Text style={[styles.resMorphemeHanzi, notoSerif]}>{text}</Text>
+                <Text style={[styles.resMorphemePinyin, spaceGrotesk, { color: toneColor(pronunciation) }]}>
+                  {pronunciation}
                 </Text>
+                <Text style={[styles.resMorphemeGloss, frauncesItalic]}>{gloss}</Text>
               </View>
             </View>
           ))}
@@ -744,7 +816,7 @@ const ResponseView = ({ turn, fontsLoaded, onPlayAudio, isPlaying, isAudioPendin
       {/* 9. YOUR PRONUNCIATION — only shown when the API returns a score */}
       {turn.score != null ? (
         <>
-          <Text style={styles.resEyebrow}>YOUR PRONUNCIATION</Text>
+          <Text style={styles.resEyebrow}>{copy.pronunciation}</Text>
           <View style={styles.resPronRow}>
             <Text style={[styles.resPronScore, notoSerif]}>{turn.score}</Text>
             <Text style={styles.resPronOutOf}>/100</Text>
@@ -810,6 +882,8 @@ export default function App() {
   const addHistoryEntry = useHistoryStore((s) => s.addEntry);
   const { save: saveEntry, unsave: unsaveEntry, isSaved } = useSavedStore();
   const recordingRef = useRef<Audio.Recording | null>(null);
+  const recordingStartedAtRef = useRef<number | null>(null);
+  const lastRecordingDurationRef = useRef(0);
   const soundRef = useRef<Audio.Sound | null>(null);
   const completeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const voiceFetchControllerRef = useRef<AbortController | null>(null);
@@ -1254,7 +1328,14 @@ export default function App() {
       playsInSilentModeIOS: true,
     });
     const recording = new Audio.Recording();
+    recording.setProgressUpdateInterval(100);
     recording.setOnRecordingStatusUpdate((status) => {
+      if (typeof status.durationMillis === "number") {
+        lastRecordingDurationRef.current = Math.max(
+          lastRecordingDurationRef.current,
+          status.durationMillis
+        );
+      }
       if (status.metering != null) setMeteringLevel(status.metering);
     });
     await recording.prepareToRecordAsync({
@@ -1263,6 +1344,8 @@ export default function App() {
     });
     await recording.startAsync();
     recordingRef.current = recording;
+    recordingStartedAtRef.current = Date.now();
+    lastRecordingDurationRef.current = 0;
     setProcessingTranscript("");
     setLiveTranscript("");
     setMeteringLevel(-160);
@@ -1283,8 +1366,7 @@ export default function App() {
     setLiveTranscript("");
     setMeteringLevel(-160);
     try {
-      await recording.stopAndUnloadAsync();
-      const status = await recording.getStatusAsync();
+      const stopStatus = await recording.stopAndUnloadAsync();
       const uri = recording.getURI();
       recordingRef.current = null;
       if (!uri) {
@@ -1292,9 +1374,20 @@ export default function App() {
       }
       const fileInfo = await FileSystem.getInfoAsync(uri);
       const fileSize = "size" in fileInfo ? fileInfo.size : undefined;
-      console.log("Voice recording duration (ms):", status.durationMillis);
+      const recordingStartedAt = recordingStartedAtRef.current;
+      const elapsedWallClockMs = recordingStartedAt
+        ? Date.now() - recordingStartedAt
+        : 0;
+      const recordedDurationMs = Math.max(
+        stopStatus.durationMillis ?? 0,
+        lastRecordingDurationRef.current,
+        elapsedWallClockMs
+      );
+      recordingStartedAtRef.current = null;
+      lastRecordingDurationRef.current = 0;
+      console.log("Voice recording duration (ms):", recordedDurationMs);
       console.log("Voice recording file size (bytes):", fileSize);
-      if (!status.durationMillis || status.durationMillis < 800) {
+      if (recordedDurationMs < 800) {
         setShowCantHear(true);
         return;
       }
@@ -1577,6 +1670,31 @@ export default function App() {
     return <Onboarding onSelect={handleSelectPreference} />;
   }
 
+  const isChineseMode = preference === "chinese";
+  const tabLabels = isChineseMode
+    ? { SPEAK: "对话", HISTORY: "记录", SAVED: "收藏" }
+    : { SPEAK: "SPEAK", HISTORY: "HISTORY", SAVED: "SAVED" };
+  const activeDailyPhrase = getDailyPhrase();
+  const phraseCopy = isChineseMode
+    ? {
+        tutor: "老师",
+        phraseEyebrow: `第 ${getDailyPhraseIndex()} 条 · 今日短语`,
+        hero: activeDailyPhrase.english,
+        support: activeDailyPhrase.chinese,
+        gloss: activeDailyPhrase.pinyin,
+        tryAsking: "试着说",
+        suggestions: SUGGESTIONS.chinese,
+      }
+    : {
+        tutor: "Tutor",
+        phraseEyebrow: `№ ${getDailyPhraseIndex()} · PHRASE OF THE DAY`,
+        hero: activeDailyPhrase.chinese,
+        support: activeDailyPhrase.pinyin,
+        gloss: `"${activeDailyPhrase.english}"`,
+        tryAsking: "Try asking",
+        suggestions: SUGGESTIONS.english,
+      };
+
   return (
     <SafeAreaView style={styles.container}>
       <View pointerEvents="none" style={styles.ambientBackground}>
@@ -1651,7 +1769,7 @@ export default function App() {
               ]}
               onLongPress={DEMO_MODE || CHATBOT_ONLY_MODE ? undefined : handleLock}
             >
-              Tutor
+              {phraseCopy.tutor}
             </Text>
             <View style={styles.headerRight}>
               {/* EN → 中 pill */}
@@ -1689,7 +1807,7 @@ export default function App() {
             {(["SPEAK", "HISTORY", "SAVED"] as const).map((tab) => (
               <Pressable key={tab} onPress={() => setActiveTab(tab)} style={styles.tabItem}>
                 <Text style={[styles.tabLabel, activeTab === tab && styles.tabLabelActive]}>
-                  {tab}
+                  {tabLabels[tab]}
                 </Text>
                 {activeTab === tab && <View style={styles.tabUnderline} />}
               </Pressable>
@@ -1711,12 +1829,14 @@ export default function App() {
         {activeTab === "SPEAK" && micPermission === "denied" ? (
           <MicDeniedCard
             fontsLoaded={!!fontsLoaded}
+            preference={preference}
             onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
           />
         ) : null}
         {activeTab === "SPEAK" && micPermission !== "denied" && showCantHear ? (
           <CantHearCard
             fontsLoaded={!!fontsLoaded}
+            preference={preference}
             onTryAgain={() => setShowCantHear(false)}
             onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
           />
@@ -1724,6 +1844,7 @@ export default function App() {
         {activeTab === "SPEAK" && micPermission !== "denied" && showTranslateError ? (
           <NetworkErrorCard
             fontsLoaded={!!fontsLoaded}
+            preference={preference}
             onTryAgain={() => setShowTranslateError(false)}
             onTypeInsteadSubmit={(text) => { void handleTypeInsteadSubmit(text); }}
           />
@@ -1747,7 +1868,14 @@ export default function App() {
               onShowText={() => setShowAudioError(false)}
             />
           ) : voiceTurn ? (
-            <Animated.View style={{ opacity: responseFade, alignSelf: "stretch" }}>
+            <Animated.View
+              style={{
+                opacity: responseFade,
+                alignSelf: "stretch",
+                flex: 1,
+                minHeight: 0,
+              }}
+            >
               <ResponseView
                 turn={voiceTurn}
                 fontsLoaded={!!fontsLoaded}
@@ -1755,13 +1883,14 @@ export default function App() {
                 isPlaying={isPlayingPronunciation}
                 isAudioPending={isAudioPending}
                 historyEntry={currentHistoryEntry}
+                preference={preference}
               />
             </Animated.View>
           ) : (
             <View style={styles.dailyPhraseCard}>
               {/* Eyebrow */}
               <Text style={styles.phraseEyebrow}>
-                № {getDailyPhraseIndex()} · PHRASE OF THE DAY
+                {phraseCopy.phraseEyebrow}
               </Text>
 
               {/* Hero hanzi */}
@@ -1771,11 +1900,11 @@ export default function App() {
                   fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
                 ]}
               >
-                {getDailyPhrase().chinese}
+                {phraseCopy.hero}
               </Text>
 
               {/* Pinyin — tone colors to be applied per-syllable in prompt #6 */}
-              <Text style={styles.phrasePinyin}>{getDailyPhrase().pinyin}</Text>
+              <Text style={styles.phrasePinyin}>{phraseCopy.support}</Text>
 
               {/* English gloss */}
               <Text
@@ -1784,15 +1913,15 @@ export default function App() {
                   fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
                 ]}
               >
-                "{getDailyPhrase().english}"
+                {phraseCopy.gloss}
               </Text>
 
               {/* Divider */}
               <View style={styles.phraseDivider} />
 
               {/* Suggestions */}
-              <Text style={styles.tryAskingLabel}>Try asking</Text>
-              {SUGGESTIONS.map((s) => (
+              <Text style={styles.tryAskingLabel}>{phraseCopy.tryAsking}</Text>
+              {phraseCopy.suggestions.map((s) => (
                 <Pressable
                   key={s}
                   style={styles.suggestionRow}
@@ -1804,7 +1933,7 @@ export default function App() {
                       fontsLoaded ? { fontFamily: "Fraunces_500Medium_Italic" } : {},
                     ]}
                   >
-                    "{s}"
+                    {isChineseMode ? s : `"${s}"`}
                   </Text>
                   <Text style={styles.suggestionChevron}>›</Text>
                 </Pressable>
@@ -2228,6 +2357,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
     paddingTop: 20,
     paddingBottom: 32,
+    minHeight: 0,
   },
   // ── Processing / translating ──────────────────────────────────────────────
   processingWrap: {
@@ -2523,11 +2653,12 @@ const styles = StyleSheet.create({
   },
   // ── Response view ────────────────────────────────────────────────────────────
   responseScroll: {
+    flex: 1,
     alignSelf: "stretch",
-    maxHeight: 400,
   },
   responseScrollContent: {
-    paddingBottom: 8,
+    flexGrow: 1,
+    paddingBottom: 24,
   },
   resEyebrow: {
     fontFamily: Platform.select({ ios: "Courier New", android: "monospace", default: "monospace" }),
@@ -2655,11 +2786,18 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "500",
     color: TOKENS.ink,
-    minWidth: 28,
+    minWidth: 40,
   },
   resMorphemePinyin: {
     fontSize: 14,
     fontWeight: "600",
+    minWidth: 72,
+  },
+  resMorphemeGloss: {
+    flex: 1,
+    fontSize: 16,
+    color: TOKENS.inkSoft,
+    textAlign: "right",
   },
   resMorphemeRule: {
     height: 1,

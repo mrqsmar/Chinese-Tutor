@@ -22,6 +22,12 @@ class SpeechTurnAnalysis(BaseModel):
     phoneme_confidence: list[float] = Field(default_factory=list)
 
 
+class SpeechTurnBreakdownItem(BaseModel):
+    text: str
+    pronunciation: str = ""
+    gloss: str = ""
+
+
 class SpeechTurnResponse(BaseModel):
     assistant_text: str
     source_lang: str
@@ -33,6 +39,7 @@ class SpeechTurnResponse(BaseModel):
     chinese: str | None = None
     pinyin: str | None = None
     notes: list[str] = Field(default_factory=list)
+    breakdown: list[SpeechTurnBreakdownItem] = Field(default_factory=list)
     audio: SpeechTurnAudio | None = None
     audio_url: str | None = None
     audio_base64: str | None = None

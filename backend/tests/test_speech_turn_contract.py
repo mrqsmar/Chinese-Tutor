@@ -16,6 +16,10 @@ class FakeTextResult:
     chinese = "我可以来一份叉烧吗？"
     pinyin = "Wǒ kěyǐ lái yí fèn chāshāo ma?"
     notes = ["Mocked response"]
+    breakdown = [
+        {"text": "我", "pronunciation": "wǒ", "gloss": "I"},
+        {"text": "可以", "pronunciation": "kě yǐ", "gloss": "may / can"},
+    ]
     target_text = "我可以来一份叉烧吗？"
     romanization = "Wǒ kěyǐ lái yí fèn chāshāo ma?"
 
@@ -46,6 +50,21 @@ class FakeSpeechTurnService:
             "audio/mpeg",
             15.0,
             None,
+        )
+
+    async def run_text_and_llm(
+        self,
+        *,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+        scenario: str | None,
+    ):
+        return (
+            text,
+            FakeTextResult(),
+            0.0,
+            20.0,
         )
 
 
@@ -82,7 +101,26 @@ def test_speech_turn_contract():
     assert "transcript" in payload
     assert "chinese" in payload
     assert "pinyin" in payload
+    assert "breakdown" in payload
     assert "audio" in payload
     assert payload["audio"].get("url") or payload["audio"].get("base64")
     assert payload["analysis"]["overall_score"] is None
     assert isinstance(payload["analysis"]["phoneme_confidence"], list)
+
+
+def test_speech_turn_contract_text_only():
+    app.dependency_overrides[get_speech_turn_service] = lambda: FakeSpeechTurnService()
+    client = TestClient(app)
+    response = client.post(
+        "/v1/speech/turn",
+        data={"text": "I love you", "scenario": "general"},
+        headers=_auth_headers(),
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["transcript"] == "I love you"
+    assert "breakdown" in payload
+    assert payload["audio"].get("url") or payload["audio"].get("base64")

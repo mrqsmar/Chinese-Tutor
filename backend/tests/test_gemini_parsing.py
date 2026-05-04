@@ -3,7 +3,16 @@ import json
 
 import pytest
 
-from app.services.speech_turn import _parse_text_result, _build_response_parts
+from app.models.speech_turn import SpeechTurnBreakdownItem
+from app.services.speech_turn import (
+    _build_response_parts,
+    _coerce_character_breakdown,
+    _has_character_level_breakdown,
+    _is_parse_failure_result,
+    _looks_like_translate_request,
+    _parse_text_result,
+    _salvage_translate_result_from_content,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -36,6 +45,10 @@ VALID_JSON = json.dumps({
     "chinese": "我想约你出去约会",
     "pinyin": "wǒ xiǎng yuē nǐ chūqù yuēhuì",
     "notes": ["Romantic phrasing; tone 3 on 想 (xiǎng)"],
+    "breakdown": [
+        {"text": "我", "pronunciation": "wǒ", "gloss": "I / me"},
+        {"text": "想", "pronunciation": "xiǎng", "gloss": "want to"},
+    ],
 })
 
 
@@ -89,6 +102,7 @@ class TestParseTextResult:
         assert result.chinese == "我想约你出去约会"
         assert result.pinyin == "wǒ xiǎng yuē nǐ chūqù yuēhuì"
         assert len(result.notes) == 1
+        assert result.breakdown[0].gloss == "I / me"
 
     def test_unknown_intent_clears_chinese(self):
         payload = json.dumps({
@@ -128,6 +142,10 @@ class TestParseTextResult:
         assert result.intent == "unknown"
         assert any("Unable to parse" in n for n in result.notes)
 
+    def test_parse_failure_flag_detects_parse_fallback(self):
+        result = _parse_text_result("not json at all", "How to ask someone out?")
+        assert _is_parse_failure_result(result)
+
 
 # ---------------------------------------------------------------------------
 # _build_response_parts — assembles final chinese/pinyin/tts_text
@@ -156,3 +174,75 @@ class TestBuildResponseParts:
         assert chinese == ""
         assert any("incomplete" in n.lower() for n in notes)
         assert tts_text == "I heard: test"
+
+
+class TestCharacterBreakdownValidation:
+    def test_accepts_one_row_per_character(self):
+        assert _has_character_level_breakdown(
+            "我爱你",
+            [
+                SpeechTurnBreakdownItem(text="我", pronunciation="wǒ", gloss="I / me"),
+                SpeechTurnBreakdownItem(text="爱", pronunciation="ài", gloss="love"),
+                SpeechTurnBreakdownItem(text="你", pronunciation="nǐ", gloss="you"),
+            ],
+        )
+
+    def test_rejects_grouped_rows(self):
+        assert not _has_character_level_breakdown(
+            "我要三个烧卖",
+            [
+                SpeechTurnBreakdownItem(text="我", pronunciation="wǒ", gloss="I"),
+                SpeechTurnBreakdownItem(text="要", pronunciation="yào", gloss="want"),
+                SpeechTurnBreakdownItem(text="烧卖", pronunciation="shāo mài", gloss="siu mai"),
+            ],
+        )
+
+    def test_coerces_grouped_rows_into_character_rows(self):
+        items = _coerce_character_breakdown(
+            chinese="我要三个烧卖",
+            pinyin="wǒ yào sān gè shāo mài",
+            breakdown=[
+                SpeechTurnBreakdownItem(text="我", pronunciation="wǒ", gloss="I"),
+                SpeechTurnBreakdownItem(text="要", pronunciation="yào", gloss="want"),
+                SpeechTurnBreakdownItem(text="三", pronunciation="sān", gloss="three"),
+                SpeechTurnBreakdownItem(text="个", pronunciation="gè", gloss="measure word"),
+                SpeechTurnBreakdownItem(text="烧卖", pronunciation="shāo mài", gloss="siu mai"),
+            ],
+        )
+        assert [item.text for item in items] == ["我", "要", "三", "个", "烧", "卖"]
+        assert [item.pronunciation for item in items][-2:] == ["shāo", "mài"]
+        assert [item.gloss for item in items][-2:] == ["siu mai", "siu mai"]
+
+
+class TestTranslateHeuristic:
+    def test_matches_generic_how_to_request(self):
+        assert _looks_like_translate_request("How to order three dumplings?")
+
+    def test_matches_generic_how_do_i_request(self):
+        assert _looks_like_translate_request("How do I ask someone out?")
+
+
+class TestFallbackSalvage:
+    def test_salvages_embedded_json(self):
+        result = _salvage_translate_result_from_content(
+            'Here is the answer: {"target_text":"我想点三个饺子","pinyin":"wǒ xiǎng diǎn sān gè jiǎozi","notes":[]}',
+            "How do I order three dumplings?",
+        )
+        assert result is not None
+        assert result.target_text == "我想点三个饺子"
+
+    def test_salvages_plain_text(self):
+        result = _salvage_translate_result_from_content(
+            "我想点三个饺子",
+            "How do I order three dumplings?",
+        )
+        assert result is not None
+        assert result.target_text == "我想点三个饺子"
+        assert result.intent == "translate_request"
+
+    def test_rejects_meta_json_preamble(self):
+        result = _salvage_translate_result_from_content(
+            "Here is the JSON requested",
+            "How do I order three dumplings?",
+        )
+        assert result is None

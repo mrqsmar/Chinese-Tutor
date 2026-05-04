@@ -12,15 +12,19 @@ import {
 
 import { FONT_FAMILIES, TOKENS } from "../styles/tokens";
 
+type SpeakerPreference = "english" | "chinese";
+
 type Props = {
   fontsLoaded: boolean;
   onTryAgain: () => void;
   onTypeInsteadSubmit: (text: string) => void;
+  preference?: SpeakerPreference | null;
 };
 
-const NetworkErrorCard = ({ fontsLoaded, onTryAgain, onTypeInsteadSubmit }: Props) => {
+const NetworkErrorCard = ({ fontsLoaded, onTryAgain, onTypeInsteadSubmit, preference }: Props) => {
   const [showSheet, setShowSheet] = useState(false);
   const [input, setInput] = useState("");
+  const isChineseMode = preference === "chinese";
 
   const frauncesMedItalic = fontsLoaded
     ? { fontFamily: FONT_FAMILIES.frauncesMediumItalic }
@@ -75,7 +79,7 @@ const NetworkErrorCard = ({ fontsLoaded, onTryAgain, onTypeInsteadSubmit }: Prop
               style={[styles.sheetInput, frauncesRegItalic]}
               value={input}
               onChangeText={setInput}
-              placeholder="e.g. How do I order coffee?"
+              placeholder={isChineseMode ? "例如：用英文怎么说“我想喝咖啡”？" : "e.g. I love you"}
               placeholderTextColor={TOKENS.inkFaint}
               autoFocus
               returnKeyType="send"
@@ -86,7 +90,7 @@ const NetworkErrorCard = ({ fontsLoaded, onTryAgain, onTypeInsteadSubmit }: Prop
               onPress={submit}
               disabled={!input.trim()}
             >
-              <Text style={styles.sheetSubmitText}>TRANSLATE →</Text>
+              <Text style={styles.sheetSubmitText}>{isChineseMode ? "翻译成英文 →" : "TRANSLATE TO CHINESE →"}</Text>
             </Pressable>
           </View>
         </KeyboardAvoidingView>

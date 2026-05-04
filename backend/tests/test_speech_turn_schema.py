@@ -16,6 +16,10 @@ class FakeTextResult:
     chinese = "我可以来一份叉烧吗？"
     pinyin = "Wǒ kěyǐ lái yí fèn chāshāo ma?"
     notes = ["Mocked response"]
+    breakdown = [
+        {"text": "我", "pronunciation": "wǒ", "gloss": "I"},
+        {"text": "可以", "pronunciation": "kě yǐ", "gloss": "may / can"},
+    ]
     target_text = "我可以来一份叉烧吗？"
     romanization = "Wǒ kěyǐ lái yí fèn chāshāo ma?"
 
@@ -48,6 +52,21 @@ class FakeSpeechTurnService:
             None,
         )
 
+    async def run_text_and_llm(
+        self,
+        *,
+        text: str,
+        source_lang: str,
+        target_lang: str,
+        scenario: str | None,
+    ):
+        return (
+            text,
+            FakeTextResult(),
+            0.0,
+            20.0,
+        )
+
 
 
 def _auth_headers() -> dict[str, str]:
@@ -72,6 +91,22 @@ def test_speech_turn_schema():
         "/v1/speech/turn",
         headers=_auth_headers(),
         files={"audio": ("sample.wav", build_silence_wav(), "audio/wav")},
+    )
+
+    app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    SpeechTurnResponse.model_validate(payload)
+
+
+def test_speech_turn_schema_text_only():
+    app.dependency_overrides[get_speech_turn_service] = lambda: FakeSpeechTurnService()
+    client = TestClient(app)
+    response = client.post(
+        "/v1/speech/turn",
+        headers=_auth_headers(),
+        data={"text": "I love you", "source_lang": "en", "target_lang": "zh"},
     )
 
     app.dependency_overrides.clear()

@@ -1,7 +1,11 @@
 import os
 
 from app.main import _resolve_voice_name
-from app.services.speech_turn import SpeechTurnService
+from app.services.speech_turn import (
+    SpeechTurnService,
+    _build_tts_text_candidates,
+    _build_tts_voice_candidates,
+)
 
 
 class _FailThenSucceedTTSClient:
@@ -48,3 +52,13 @@ def test_tts_fallback_to_default_voice(tmp_path):
     assert audio_mime == "audio/wav"
     assert audio_url and "/static/audio/" in audio_url
     assert tts_client.calls == ["Leda", "Kore"]
+
+
+def test_build_tts_voice_candidates_for_zh():
+    assert _build_tts_voice_candidates("Puck", "zh") == ["Puck", "Kore", "Leda"]
+    assert _build_tts_voice_candidates("Kore", "zh") == ["Kore", "Leda", "Puck"]
+
+
+def test_build_tts_text_candidates_adds_sanitized_variant():
+    assert _build_tts_text_candidates("一，二，三") == ["一，二，三", "一 二 三"]
+    assert _build_tts_text_candidates("你好") == ["你好"]

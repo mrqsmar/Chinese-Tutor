@@ -7,8 +7,8 @@ from uuid import uuid4
 from datetime import datetime, timezone
 import asyncio
 import logging
+import mimetypes
 import time
-import wave
 import re
 
 import os
@@ -47,10 +47,12 @@ from app.security import (
     verify_password,
 )
 from app.services.gemini_stt import GeminiSTTClient
-from app.services.gemini_tts import GeminiTTSClient
+from app.services.elevenlabs_tts import ElevenLabsTTSClient
 from app.services.speech_turn import (
     GeminiSpeechTurnTextClient,
     SpeechTurnService,
+    _ensure_character_breakdown,
+    _has_character_level_breakdown,
     _build_response_parts,
 )
 
@@ -342,32 +344,25 @@ async def debug_tts(
     """
     Quick backend-only test:
     - Generates TTS audio for `text`
-    - Saves a .wav under AUDIO_DIR
+    - Saves an audio asset under AUDIO_DIR
     - Returns a URL under /static/audio that should be playable
     """
-    api_key = os.getenv("GEMINI_API_KEY")
+    api_key = os.getenv("ELEVENLABS_API_KEY")
     if not api_key:
-        raise HTTPException(status_code=503, detail="Gemini API key not configured.")
+        raise HTTPException(status_code=503, detail="ElevenLabs API key not configured.")
 
-    tts_client = GeminiTTSClient(api_key=api_key)
+    tts_client = ElevenLabsTTSClient(api_key=api_key)
 
     try:
-        pcm_bytes, meta = await tts_client.synthesize(text, target_lang)
+        audio_bytes, meta = await tts_client.synthesize(text, target_lang)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"TTS failed: {type(exc).__name__}: {exc}")
 
-    sample_rate = int(meta.get("sample_rate_hz", 24000))
-    channels = int(meta.get("channels", 1))
-    sampwidth = int(meta.get("sample_width_bytes", 2))
-
-    filename = f"{uuid4().hex}.wav"
+    extension = str(meta.get("file_extension", "mp3"))
+    filename = f"{uuid4().hex}.{extension}"
     file_path = os.path.join(AUDIO_DIR, filename)
-
-    with wave.open(file_path, "wb") as wf:
-        wf.setnchannels(channels)
-        wf.setsampwidth(sampwidth)
-        wf.setframerate(sample_rate)
-        wf.writeframes(pcm_bytes)
+    with open(file_path, "wb") as audio_file:
+        audio_file.write(audio_bytes)
 
     return {
         "text": text,
@@ -381,7 +376,8 @@ async def audio_file(filename: str, token: str) -> FileResponse:
     file_path = os.path.join(AUDIO_DIR, filename)
     if not os.path.exists(file_path):
         raise HTTPException(status_code=404, detail="Audio not found.")
-    return FileResponse(file_path, media_type="audio/wav")
+    media_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+    return FileResponse(file_path, media_type=media_type)
 
 
 def get_speech_turn_service() -> SpeechTurnService:
@@ -389,13 +385,16 @@ def get_speech_turn_service() -> SpeechTurnService:
     if _speech_service is not None:
         return _speech_service
 
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
         raise HTTPException(status_code=503, detail="Gemini API key not configured.")
+    elevenlabs_api_key = os.getenv("ELEVENLABS_API_KEY")
+    if not elevenlabs_api_key:
+        raise HTTPException(status_code=503, detail="ElevenLabs API key not configured.")
 
-    stt_client = GeminiSTTClient(api_key=api_key)
-    tts_client = GeminiTTSClient(api_key=api_key)
-    text_client = GeminiSpeechTurnTextClient(api_key=api_key)
+    stt_client = GeminiSTTClient(api_key=gemini_api_key)
+    tts_client = ElevenLabsTTSClient(api_key=elevenlabs_api_key)
+    text_client = GeminiSpeechTurnTextClient(api_key=gemini_api_key)
 
     _speech_service = SpeechTurnService(
         stt_client=stt_client,
@@ -727,7 +726,8 @@ async def llm_chat(
 
 async def _speech_turn_handler(
     request: Request,
-    audio: UploadFile,
+    audio: UploadFile | None,
+    text: str | None,
     level: str,
     scenario: str,
     source_lang: str,
@@ -737,34 +737,55 @@ async def _speech_turn_handler(
     auth: AuthContext,
 ) -> SpeechTurnResponse:
     request_start = time.perf_counter()
-    audio_bytes = await audio.read()
-    if not audio_bytes:
-        raise HTTPException(status_code=400, detail="Audio file is empty.")
-    if len(audio_bytes) > MAX_AUDIO_BYTES:
-        raise HTTPException(status_code=413, detail="Audio upload too large.")
-    mime_type = audio.content_type
-    if not mime_type:
-        if (audio.filename or "").endswith(".m4a"):
-            mime_type = "audio/mp4"
-        else:
-            mime_type = "application/octet-stream"
-    logger.info(
-        "Speech turn upload received: filename=%s content_type=%s bytes=%s",
-        audio.filename,
-        mime_type,
-        len(audio_bytes),
-    )
     base_url = os.getenv("PUBLIC_BASE_URL") or str(request.base_url)
     voice_name = _resolve_voice_name(voice)
+    text_value = (text or "").strip()
 
-    transcript, text_result, stt_ms, llm_ms = await service.run_stt_and_llm(
-        audio_bytes=audio_bytes,
-        mime_type=mime_type,
-        source_lang=source_lang,
-        target_lang=target_lang,
-        scenario=scenario,
-    )
+    if audio is not None:
+        audio_bytes = await audio.read()
+        if not audio_bytes:
+            raise HTTPException(status_code=400, detail="Audio file is empty.")
+        if len(audio_bytes) > MAX_AUDIO_BYTES:
+            raise HTTPException(status_code=413, detail="Audio upload too large.")
+        mime_type = audio.content_type
+        if not mime_type:
+            if (audio.filename or "").endswith(".m4a"):
+                mime_type = "audio/mp4"
+            else:
+                mime_type = "application/octet-stream"
+        logger.info(
+            "Speech turn upload received: filename=%s content_type=%s bytes=%s",
+            audio.filename,
+            mime_type,
+            len(audio_bytes),
+        )
+        transcript, text_result, stt_ms, llm_ms = await service.run_stt_and_llm(
+            audio_bytes=audio_bytes,
+            mime_type=mime_type,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            scenario=scenario,
+        )
+    elif text_value:
+        logger.info("Speech turn text received: chars=%s", len(text_value))
+        transcript, text_result, stt_ms, llm_ms = await service.run_text_and_llm(
+            text=text_value,
+            source_lang=source_lang,
+            target_lang=target_lang,
+            scenario=scenario,
+        )
+    else:
+        raise HTTPException(status_code=400, detail="Either audio or text is required.")
     chinese, pinyin, notes, tts_text = _build_response_parts(transcript, text_result)
+    needs_breakdown_regen = (
+        target_lang == "zh"
+        and not _has_character_level_breakdown(chinese, text_result.breakdown)
+    )
+    breakdown_task = (
+        asyncio.create_task(_ensure_character_breakdown(service._text_client, text_result, transcript))
+        if needs_breakdown_regen
+        else None
+    )
     elapsed_ms = (time.perf_counter() - request_start) * 1000
 
     if elapsed_ms > 15000:
@@ -821,6 +842,7 @@ async def _speech_turn_handler(
             chinese=chinese,
             pinyin=pinyin,
             notes=notes,
+            breakdown=text_result.breakdown,
             audio=None,
             audio_url=None,
             audio_base64=None,
@@ -837,12 +859,19 @@ async def _speech_turn_handler(
         base_url=base_url,
         voice_name=voice_name,
     )
+    breakdown_wait_start = time.perf_counter()
+    breakdown = await breakdown_task if breakdown_task else text_result.breakdown
+    breakdown_wait_ms = (
+        (time.perf_counter() - breakdown_wait_start) * 1000 if breakdown_task else 0.0
+    )
     total_ms = (time.perf_counter() - request_start) * 1000
     logger.info(
-        "Speech turn timings stt_ms=%.1f llm_ms=%.1f tts_ms=%.1f total_ms=%.1f",
+        "Speech turn timings stt_ms=%.1f llm_ms=%.1f tts_ms=%.1f breakdown_wait_ms=%.1f breakdown_regen=%s total_ms=%.1f",
         stt_ms,
         llm_ms,
         tts_ms,
+        breakdown_wait_ms,
+        needs_breakdown_regen,
         total_ms,
     )
     return SpeechTurnResponse(
@@ -856,6 +885,7 @@ async def _speech_turn_handler(
         chinese=chinese,
         pinyin=pinyin,
         notes=notes,
+        breakdown=breakdown,
         audio=audio,
         audio_url=audio_url,
         audio_base64=audio.base64 if audio else None,
@@ -870,7 +900,8 @@ async def _speech_turn_handler(
 @app.post("/v1/speech/turn", response_model=SpeechTurnResponse)
 async def speech_turn(
     request: Request,
-    audio: UploadFile = File(...),
+    audio: UploadFile | None = File(None),
+    text: str | None = Form(None),
     level: str = Form("beginner"),
     scenario: str = Form("restaurant"),
     source_lang: str = Form("en"),
@@ -883,6 +914,7 @@ async def speech_turn(
     return await _speech_turn_handler(
         request=request,
         audio=audio,
+        text=text,
         level=level,
         scenario=scenario,
         source_lang=source_lang,
@@ -896,7 +928,8 @@ async def speech_turn(
 @app.post("/speech_turn", response_model=SpeechTurnResponse)
 async def speech_turn_alias(
     request: Request,
-    audio: UploadFile = File(...),
+    audio: UploadFile | None = File(None),
+    text: str | None = Form(None),
     level: str = Form("beginner"),
     scenario: str = Form("restaurant"),
     source_lang: str = Form("en"),
@@ -909,6 +942,7 @@ async def speech_turn_alias(
     return await _speech_turn_handler(
         request=request,
         audio=audio,
+        text=text,
         level=level,
         scenario=scenario,
         source_lang=source_lang,
